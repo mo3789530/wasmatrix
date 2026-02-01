@@ -1,0 +1,39 @@
+[package]
+name = "wasmatrix-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Wasmatrix node agent for local WebAssembly execution"
+
+[[bin]]
+name = "wasmatrix-agent"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+wasmtime = { workspace = true }
+wasi-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# gRPC
+prost-types = "0.12"
+tonic-reflection = "0.11"
+
+# MQTT/NATS
+rumqttc = "0.24"
+
+# Metrics
+prometheus = "0.13"
+opentelemetry = "0.22"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"

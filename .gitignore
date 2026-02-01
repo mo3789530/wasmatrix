@@ -1,0 +1,71 @@
+# Elixir / Phoenix
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+*.ez
+wasmatrix-*.tar
+npm-debug.log
+/assets/node_modules/
+/priv/static/assets/
+/priv/static/cache_manifest.json
+/config/*.secret.exs
+.elixir_ls/
+
+# Rust
+crates/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# Build outputs
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test / Temp
+/tmp/
+/priv/tmp/
+*.log
+
+# Generated documentation
+/doc/
+/crates/*/target/doc/
+
+# Database
+*.db
+*.db-journal
+/priv/data/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies lock (keep mix.lock for Elixir but ignore Cargo.lock for libs)
+# mix.lock is tracked for reproducible builds
+# Cargo.lock is only for binaries, not libraries
+
+# Coverage
+/cover/
+/crates/*/target/coverage/
+*.lcov
+
+# Benchmark results
+/bench/
+/benchmarks/results/
+
+# Profiling
+*.prof
+*.profiling

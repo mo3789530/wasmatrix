@@ -1,0 +1,54 @@
+[package]
+name = "wasmatrix-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Wasmatrix WebAssembly runtime with capability enforcement"
+
+[lib]
+name = "wasmatrix_runtime"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wasmatrix-runtime"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+wasmtime = { workspace = true }
+wasi-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# WASI components
+wasmtime-wasi = "18.0"
+wasmtime-wasi-http = "18.0"
+wasmtime-component-util = "18.0"
+
+# Security
+ring = "0.17"
+rsa = "0.9"
+sha2 = "0.10"
+
+# Hardware features
+aes-gcm = "0.10"
+
+# Multi-arch support
+libc = "0.2"
+cfg-if = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+wasmtime-environ = "18.0"
+proptest = "1.4"
+
+[features]
+default = []
+hw-security = []
+jit = []
+aot = []
