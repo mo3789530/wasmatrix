@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package wasmatrix.v1;
+
+service NodeAgentService {
+  rpc StartInstance(StartInstanceRequest) returns (StartInstanceResponse);
+  rpc StopInstance(StopInstanceRequest) returns (StopInstanceResponse);
+  rpc QueryInstance(QueryInstanceRequest) returns (QueryInstanceResponse);
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+}
+
+service ControlPlaneService {
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc ReportStatus(StatusReport) returns (StatusReportResponse);
+}
+
+// Messages
+
+message StartInstanceRequest {
+  string instance_id = 1;
+  bytes module_bytes = 2;
+  repeated CapabilityAssignment capabilities = 3;
+  RestartPolicy restart_policy = 4;
+}
+
+message StartInstanceResponse {
+  bool success = 1;
+  string message = 2;
+  optional string error_code = 3;
+}
+
+message StopInstanceRequest {
+  string instance_id = 1;
+}
+
+message StopInstanceResponse {
+  bool success = 1;
+  string message = 2;
+  optional string error_code = 3;
+}
+
+message QueryInstanceRequest {
+  string instance_id = 1;
+}
+
+message QueryInstanceResponse {
+  bool success = 1;
+  optional InstanceMetadata instance = 2;
+  optional string error_code = 3;
+}
+
+message ListInstancesRequest {}
+
+message ListInstancesResponse {
+  bool success = 1;
+  repeated InstanceMetadata instances = 2;
+}
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  string node_address = 2;
+  repeated string capabilities = 3;
+  uint32 max_instances = 4;
+}
+
+message RegisterNodeResponse {
+  bool success = 1;
+  string message = 2;
+  optional string error_code = 3;
+}
+
+message StatusReport {
+  string node_id = 1;
+  repeated InstanceStatusUpdate instance_updates = 2;
+  int64 timestamp = 3;
+}
+
+message StatusReportResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message InstanceStatusUpdate {
+  string instance_id = 1;
+  InstanceStatus status = 2;
+  optional string error_message = 3;
+}
+
+// Common Types
+
+message CapabilityAssignment {
+  string instance_id = 1;
+  string capability_id = 2;
+  ProviderType provider_type = 3;
+  repeated string permissions = 4;
+}
+
+message InstanceMetadata {
+  string instance_id = 1;
+  string node_id = 2;
+  string module_hash = 3;
+  int64 created_at = 4;
+  InstanceStatus status = 5;
+}
+
+enum ProviderType {
+  PROVIDER_TYPE_UNSPECIFIED = 0;
+  PROVIDER_TYPE_KV = 1;
+  PROVIDER_TYPE_HTTP = 2;
+  PROVIDER_TYPE_MESSAGING = 3;
+}
+
+enum InstanceStatus {
+  INSTANCE_STATUS_UNSPECIFIED = 0;
+  INSTANCE_STATUS_STARTING = 1;
+  INSTANCE_STATUS_RUNNING = 2;
+  INSTANCE_STATUS_STOPPED = 3;
+  INSTANCE_STATUS_CRASHED = 4;
+}
+
+message RestartPolicy {
+  RestartPolicyType policy_type = 1;
+  optional uint32 max_retries = 2;
+  optional uint64 backoff_seconds = 3;
+}
+
+enum RestartPolicyType {
+  RESTART_POLICY_TYPE_UNSPECIFIED = 0;
+  RESTART_POLICY_TYPE_NEVER = 1;
+  RESTART_POLICY_TYPE_ALWAYS = 2;
+  RESTART_POLICY_TYPE_ON_FAILURE = 3;
+}

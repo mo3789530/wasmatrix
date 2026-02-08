@@ -16,6 +16,7 @@ name = "wasmatrix-runtime"
 path = "src/main.rs"
 
 [dependencies]
+wasmatrix-core = { path = "../wasmatrix-core" }
 tokio = { workspace = true }
 wasmtime = { workspace = true }
 wasi-common = { workspace = true }

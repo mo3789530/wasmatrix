@@ -1,0 +1,25 @@
+[package]
+name = "wasmatrix-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core data types and utilities for Wasmatrix orchestrator"
+
+[lib]
+name = "wasmatrix_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.7", features = ["v4", "serde"] }
+
+[dev-dependencies]
+serde_test = "1.0"
+proptest = "1.4"
+hex = "0.4"

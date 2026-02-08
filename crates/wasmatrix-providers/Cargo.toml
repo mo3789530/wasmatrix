@@ -1,0 +1,30 @@
+[package]
+name = "wasmatrix-providers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Capability providers for Wasmatrix orchestrator (KV, HTTP, Messaging)"
+
+[lib]
+name = "wasmatrix_providers"
+path = "src/lib.rs"
+
+[dependencies]
+wasmatrix-core = { path = "../wasmatrix-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Messaging
+rumqttc = "0.24"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"

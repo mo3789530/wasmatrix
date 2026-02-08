@@ -1,5 +1,5 @@
 [workspace]
-members = ["wasmatrix-agent", "wasmatrix-runtime"]
+members = ["wasmatrix-core", "wasmatrix-control-plane", "wasmatrix-agent", "wasmatrix-providers", "wasmatrix-runtime", "wasmatrix-proto"]
 resolver = "2"
 
 [workspace.package]
@@ -21,6 +21,9 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
+uuid = { version = "1.7", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+etcd-client = "0.13"
 
 [profile.release]
 opt-level = 3

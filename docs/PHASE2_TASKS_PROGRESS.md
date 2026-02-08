@@ -1,0 +1,112 @@
+# Phase 2 Task Progress
+
+## 2026-02-08
+
+- Started Task `12.4`: Update Control Plane to route requests to Node Agents.
+- Updated task status in `.kiro/specs/wasm-orchestrator/tasks.md`:
+  - `12` marked as in progress
+  - `12.4` marked as in progress
+- Switched active task to `12.5`: Update Node Agent to report status to Control Plane.
+- Updated task status in `.kiro/specs/wasm-orchestrator/tasks.md`:
+  - `12.4` moved back to pending
+  - `12.5` marked as in progress
+- Completed Task `12.5`: Update Node Agent to report status to Control Plane.
+- Implementation:
+  - Added Feature-Sliced module `status_reporting` in `crates/wasmatrix-agent/src/features/status_reporting/`
+  - Added `repo` for Control Plane gRPC reporting (`StatusReportRepo`)
+  - Added `service` for heartbeat/status-change reporting (`StatusReportService`)
+  - Added `controller` for periodic scheduling and trigger API (`StatusReportController`)
+  - Wired Node Agent startup in `crates/wasmatrix-agent/src/main.rs`:
+    - starts gRPC `NodeAgentServiceServer`
+    - sends initial heartbeat and periodic heartbeat reports
+  - Wired immediate status change reports on start/stop in `crates/wasmatrix-agent/src/server.rs`
+- Verification:
+  - `cargo test -p wasmatrix-agent` passed (15 tests)
+  - `cargo test -p wasmatrix-control-plane` passed (91 tests)
+  - `cargo build -p wasmatrix-agent -p wasmatrix-control-plane` passed
+- Started Task `12.4`: Update Control Plane to route requests to Node Agents.
+- Completed Task `12.4`: Update Control Plane to route requests to Node Agents.
+- Implementation:
+  - Added Feature-Sliced module `node_routing` in `crates/wasmatrix-control-plane/src/features/node_routing/`
+  - Added `repo` for node registry and instance placement (`InMemoryNodeRoutingRepository`)
+  - Added `service` for Node Agent gRPC routing and availability handling (`NodeRoutingService`)
+  - Added `controller` as thin API wrapper (`NodeRoutingController`)
+  - Wired Control Plane gRPC server bootstrap in `crates/wasmatrix-control-plane/src/main.rs`
+  - Updated `crates/wasmatrix-control-plane/src/server.rs`:
+    - `register_node` now persists node registration
+    - `report_status` now records heartbeat and propagates instance status updates
+- Verification:
+  - `cargo test -p wasmatrix-control-plane` passed (95 tests)
+  - `cargo build -p wasmatrix-control-plane` passed
+- Started Task `12.2 / 12.6`: distributed communication property tests.
+- Completed Task `12.2`: protocol communication property tests.
+- Completed Task `12.6`: status reporting property tests.
+- Implementation:
+  - Added Property 16 tests in `crates/wasmatrix-proto/src/protocol_tests.rs`:
+    - `property_protocol_start_instance_round_trip_v1`
+    - `property_protocol_status_report_round_trip_v1`
+  - Added Property 9 test in `crates/wasmatrix-control-plane/src/server.rs`:
+    - `property_status_reporting_reflects_latest_instance_state`
+- Verification:
+  - `cargo test -p wasmatrix-proto` passed (15 tests)
+  - `cargo test -p wasmatrix-control-plane` passed (96 tests)
+  - `cargo build -p wasmatrix-proto -p wasmatrix-control-plane` passed
+- Started Task `12.7`: unit tests for distributed communication.
+- Started Task `13`: optional etcd integration.
+- Started Task `14`: multi-node support.
+- Updated task status in `.kiro/specs/wasm-orchestrator/tasks.md`:
+  - `12.7` marked as in progress
+  - `13` and `13.1` marked as in progress
+  - `14` and `14.1` marked as in progress
+- Completed Task `12.7`: unit tests for distributed communication.
+- Progress on Task `13`:
+  - Completed `13.1` (optional etcd dependency + feature flag + env configuration)
+  - Started `13.2` (partial metadata path implementation)
+- Progress on Task `14`:
+  - Completed `14.1` (multi-node discovery and capability-aware placement)
+- Implementation:
+  - Added distributed communication unit tests:
+    - `test_grpc_register_node_message_exchange_success`
+    - `test_grpc_report_status_rejects_invalid_status_code`
+    - multi-node candidate selection tests in `node_routing/service`
+  - Added etcd integration scaffolding:
+    - workspace dependency `etcd-client`
+    - control-plane optional feature `etcd`
+    - `EtcdConfig` in `features/node_routing/repo/etcd.rs`
+  - Added metadata separation support:
+    - `ProviderMetadata` storage in node routing repository
+  - Added multi-node static discovery:
+    - `STATIC_NODE_AGENTS` bootstrap in control-plane `main.rs`
+    - capability-aware least-loaded candidate selection for routing
+- Verification:
+  - `cargo test -p wasmatrix-control-plane` passed (102 tests)
+  - `cargo test -p wasmatrix-proto` passed (15 tests)
+  - `cargo build -p wasmatrix-control-plane` passed
+- Completed Task `13.2`: limited etcd metadata usage.
+- Completed Task `13.3`: etcd limited usage property tests.
+- Completed Task `13.4`: etcd integration unit tests.
+- Completed Task `14.2`: node failure resilience property test.
+- Completed Task `14.3`: multi-node operation unit tests.
+- Implementation:
+  - Added `EtcdMetadataRepository` and key-classification guard in `crates/wasmatrix-control-plane/src/features/node_routing/repo/etcd.rs`
+  - Wired optional etcd metadata writes from `NodeRoutingService` (`new_with_etcd`, node/provider metadata writes)
+  - Added repository and service tests for etcd metadata behavior and non-storage of instance state
+  - Added node failure resilience property test and multi-node selection/failure unit tests in `node_routing/service`
+- Verification:
+  - `cargo test -p wasmatrix-control-plane` passed (112 tests)
+  - `cargo build -p wasmatrix-control-plane` passed
+  - Note: `cargo test -p wasmatrix-control-plane --features etcd` could not run in this environment due restricted network access when downloading `etcd-client`
+- Completed Task `15.1`: state rebuild from Node Agent reports.
+- Completed Task `15.2`: unit test for Control Plane recovery.
+- Implementation:
+  - Added `ControlPlane::restore_instance_state` in `crates/wasmatrix-control-plane/src/lib.rs` for recovery-time metadata and capability upsert.
+  - Extended node routing repository API with `set_active_instances` and implemented it in `InMemoryNodeRoutingRepository`.
+  - Added recovery orchestration methods:
+    - `NodeRoutingService::recover_node_state`
+    - `NodeRoutingService::apply_recovered_instances`
+    - `NodeRoutingController::recover_node_state`
+  - Updated `register_node` flow in `crates/wasmatrix-control-plane/src/server.rs` to trigger recovery from the registering Node Agent.
+  - Added recovery unit test `test_recover_node_state_applies_instance_statuses` in `crates/wasmatrix-control-plane/src/features/node_routing/service/mod.rs`.
+- Verification:
+  - `cargo test -p wasmatrix-control-plane` passed (113 tests)
+  - `cargo build -p wasmatrix-control-plane` passed
