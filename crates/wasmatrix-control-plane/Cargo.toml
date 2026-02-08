@@ -1,15 +1,19 @@
 [package]
-name = "wasmatrix-agent"
+name = "wasmatrix-control-plane"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Wasmatrix node agent for local WebAssembly execution"
+description = "Control plane for Wasmatrix orchestrator - manages instance lifecycle and capability assignments"
 
 [[bin]]
-name = "wasmatrix-agent"
+name = "wasmatrix-control-plane"
 path = "src/main.rs"
+
+[features]
+default = []
+etcd = ["dep:etcd-client"]
 
 [dependencies]
 wasmatrix-core = { path = "../wasmatrix-core" }
@@ -17,8 +21,6 @@ wasmatrix-proto = { path = "../wasmatrix-proto" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
-wasmtime = { workspace = true }
-wasi-common = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -29,12 +31,21 @@ tracing-subscriber = { workspace = true }
 prost-types = "0.12"
 tonic-reflection = "0.11"
 
-# MQTT/NATS
-rumqttc = "0.24"
+# API
+axum = "0.7"
+tower = "0.4"
+tower-http = "0.5"
 
-# Metrics
-prometheus = "0.13"
-opentelemetry = "0.22"
+# Hashing
+md5 = "0.7"
+
+# Async
+async-trait = "0.1"
+
+# Time
+chrono = { workspace = true }
+uuid = { workspace = true }
+etcd-client = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

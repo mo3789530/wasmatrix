@@ -1,24 +1,33 @@
 .PHONY: all setup build test clean help \
 	elixir-setup elixir-compile elixir-test elixir-format elixir-lint \
 	rust-check rust-build rust-test rust-format rust-lint \
-	docs shell release
+	rust-test-core rust-test-cp rust-test-agent rust-test-providers rust-test-runtime \
+	rust-build-core rust-build-cp rust-build-agent rust-build-providers rust-build-runtime \
+	docs shell release ci verify
 
+# =============================================================================
+# Colors for output
+# =============================================================================
+BLUE := \033[0;34m
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+NC := \033[0m # No Color
+
+# =============================================================================
 # Default target
+# =============================================================================
 all: setup build
+	@echo "$(GREEN)✅ Setup and build complete$(NC)"
 
 # =============================================================================
 # Setup
 # =============================================================================
 
-setup: elixir-setup rust-setup
-	@echo "✅ Setup complete"
-
-elixir-setup:
-	@echo "📦 Installing Elixir dependencies..."
-	@mix deps.get
+setup: rust-setup
+	@echo "$(GREEN)✅ Setup complete$(NC)"
 
 rust-setup:
-	@echo "📦 Checking Rust toolchain..."
+	@echo "$(BLUE)📦 Checking Rust toolchain...$(NC)"
 	@rustc --version
 	@cargo --version
 
@@ -26,193 +35,257 @@ rust-setup:
 # Build
 # =============================================================================
 
-build: elixir-compile rust-build
-	@echo "✅ Build complete"
+build: rust-build
+	@echo "$(GREEN)✅ Build complete$(NC)"
 
-elixir-compile:
-	@echo "🔨 Compiling Elixir..."
-	@mix compile
+rust-build: rust-build-core rust-build-cp rust-build-agent rust-build-providers rust-build-runtime
+	@echo "$(GREEN)✅ Rust workspace build complete$(NC)"
 
-rust-check:
-	@echo "🔍 Checking Rust code..."
-	@cargo check --manifest-path=crates/Cargo.toml
+rust-build-core:
+	@echo "$(BLUE)🔨 Building wasmatrix-core...$(NC)"
+	@cargo build -p wasmatrix-core --manifest-path=crates/Cargo.toml
 
-rust-build:
-	@echo "🔨 Building Rust workspace..."
-	@cargo build --manifest-path=crates/Cargo.toml
+rust-build-cp:
+	@echo "$(BLUE)🔨 Building wasmatrix-control-plane...$(NC)"
+	@cargo build -p wasmatrix-control-plane --manifest-path=crates/Cargo.toml
+
+rust-build-agent:
+	@echo "$(BLUE)🔨 Building wasmatrix-agent...$(NC)"
+	@cargo build -p wasmatrix-agent --manifest-path=crates/Cargo.toml
+
+rust-build-providers:
+	@echo "$(BLUE)🔨 Building wasmatrix-providers...$(NC)"
+	@cargo build -p wasmatrix-providers --manifest-path=crates/Cargo.toml
+
+rust-build-runtime:
+	@echo "$(BLUE)🔨 Building wasmatrix-runtime...$(NC)"
+	@cargo build -p wasmatrix-runtime --manifest-path=crates/Cargo.toml
 
 rust-release:
-	@echo "🔨 Building Rust release..."
+	@echo "$(BLUE)🔨 Building Rust release...$(NC)"
 	@cargo build --release --manifest-path=crates/Cargo.toml
 
 # =============================================================================
 # Test
 # =============================================================================
 
-test: elixir-test rust-test
-	@echo "✅ All tests passed"
+test: rust-test
+	@echo "$(GREEN)✅ All tests passed$(NC)"
 
-elixir-test:
-	@echo "🧪 Running Elixir tests..."
-	@mix test
+rust-test: rust-test-core rust-test-cp rust-test-agent rust-test-providers rust-test-runtime
+	@echo "$(GREEN)✅ All Rust tests passed$(NC)"
 
-elixir-test-watch:
-	@echo "👁️  Running Elixir tests in watch mode..."
-	@mix test.watch
+rust-test-core:
+	@echo "$(BLUE)🧪 Running wasmatrix-core tests...$(NC)"
+	@cargo test -p wasmatrix-core --manifest-path=crates/Cargo.toml
 
-rust-test:
-	@echo "🧪 Running Rust tests..."
-	@cargo test --manifest-path=crates/Cargo.toml
+rust-test-cp:
+	@echo "$(BLUE)🧪 Running wasmatrix-control-plane tests...$(NC)"
+	@cargo test -p wasmatrix-control-plane --manifest-path=crates/Cargo.toml
 
-rust-test-release:
-	@echo "🧪 Running Rust tests (release mode)..."
-	@cargo test --release --manifest-path=crates/Cargo.toml
+rust-test-agent:
+	@echo "$(BLUE)🧪 Running wasmatrix-agent tests...$(NC)"
+	@cargo test -p wasmatrix-agent --manifest-path=crates/Cargo.toml
+
+rust-test-providers:
+	@echo "$(BLUE)🧪 Running wasmatrix-providers tests...$(NC)"
+	@cargo test -p wasmatrix-providers --manifest-path=crates/Cargo.toml
+
+rust-test-runtime:
+	@echo "$(BLUE)🧪 Running wasmatrix-runtime tests...$(NC)"
+	@cargo test -p wasmatrix-runtime --manifest-path=crates/Cargo.toml
+
+rust-test-watch:
+	@echo "$(BLUE)👁️  Running Rust tests in watch mode...$(NC)"
+	@cargo watch -x test --manifest-path=crates/Cargo.toml
+
+rust-test-next:
+	@echo "$(BLUE)🧪 Running nextest...$(NC)"
+	@cargo nextest run --manifest-path=crates/Cargo.toml
 
 # =============================================================================
 # Code Quality
 # =============================================================================
 
-lint: elixir-lint rust-lint
-	@echo "✅ Linting complete"
-
-elixir-lint:
-	@echo "🔍 Running Elixir linters..."
-	@mix credo --strict || true
-	@mix dialyzer || true
-
-elixir-format:
-	@echo "✨ Formatting Elixir code..."
-	@mix format
-
-elixir-format-check:
-	@echo "🔍 Checking Elixir formatting..."
-	@mix format --check-formatted
+lint: rust-lint
+	@echo "$(GREEN)✅ Linting complete$(NC)"
 
 rust-lint:
-	@echo "🔍 Running Rust linters..."
+	@echo "$(BLUE)🔍 Running Rust linters...$(NC)"
 	@cargo clippy --manifest-path=crates/Cargo.toml -- -D warnings || true
 
 rust-format:
-	@echo "✨ Formatting Rust code..."
+	@echo "$(BLUE)✨ Formatting Rust code...$(NC)"
 	@cargo fmt --manifest-path=crates/Cargo.toml
 
 rust-format-check:
-	@echo "🔍 Checking Rust formatting..."
+	@echo "$(BLUE)🔍 Checking Rust formatting...$(NC)"
 	@cargo fmt --manifest-path=crates/Cargo.toml -- --check
+
+rust-audit:
+	@echo "$(BLUE)🔍 Auditing dependencies...$(NC)"
+	@cargo audit --manifest-path=crates/Cargo.toml
+
+rust-check:
+	@echo "$(BLUE)🔍 Checking Rust code...$(NC)"
+	@cargo check --manifest-path=crates/Cargo.toml
 
 # =============================================================================
 # Development
 # =============================================================================
 
 shell:
-	@echo "🚀 Starting Elixir shell..."
-	@iex -S mix
+	@echo "$(BLUE)🚀 Starting control plane shell...$(NC)"
+	@cargo run --bin wasmatrix-control-plane --manifest-path=crates/Cargo.toml
 
 dev-control:
-	@echo "🚀 Starting control plane..."
-	@iex -S mix
+	@echo "$(BLUE)🚀 Starting control plane...$(NC)"
+	@cargo run --bin wasmatrix-control-plane --manifest-path=crates/Cargo.toml
 
 dev-agent:
-	@echo "🚀 Starting node agent..."
+	@echo "$(BLUE)🚀 Starting node agent...$(NC)"
 	@cargo run --bin wasmatrix-agent --manifest-path=crates/Cargo.toml
 
 dev-runtime:
-	@echo "🚀 Starting runtime..."
+	@echo "$(BLUE)🚀 Starting runtime...$(NC)"
+	@cargo run --bin wasmatrix-runtime --manifest-path=crates/Cargo.toml
+
+dev-all:
+	@echo "$(BLUE)🚀 Starting all components...$(NC)"
+	@cargo run --bin wasmatrix-control-plane --manifest-path=crates/Cargo.toml &
+	@cargo run --bin wasmatrix-agent --manifest-path=crates/Cargo.toml &
 	@cargo run --bin wasmatrix-runtime --manifest-path=crates/Cargo.toml
 
 # =============================================================================
 # Documentation
 # =============================================================================
 
-docs: elixir-docs rust-docs
-	@echo "✅ Documentation generated"
-
-elixir-docs:
-	@echo "📚 Generating Elixir documentation..."
-	@mix docs
+docs: rust-docs
+	@echo "$(GREEN)✅ Documentation generated$(NC)"
 
 rust-docs:
-	@echo "📚 Generating Rust documentation..."
+	@echo "$(BLUE)📚 Generating Rust documentation...$(NC)"
 	@cargo doc --manifest-path=crates/Cargo.toml --no-deps
 
 rust-docs-open:
-	@echo "📚 Opening Rust documentation..."
+	@echo "$(BLUE)📚 Opening Rust documentation...$(NC)"
 	@cargo doc --manifest-path=crates/Cargo.toml --no-deps --open
 
-# =============================================================================
-# Release
-# =============================================================================
-
-release: clean elixir-setup rust-release
-	@echo "✅ Release build complete"
-	@echo "Binaries located in crates/target/release/"
+rust-docs-core:
+	@echo "$(BLUE)📚 Generating wasmatrix-core docs...$(NC)"
+	@cargo doc -p wasmatrix-core --manifest-path=crates/Cargo.toml --no-deps
 
 # =============================================================================
-# Clean
+# Feature-Sliced Design Targets
 # =============================================================================
 
-clean: elixir-clean rust-clean
-	@echo "✅ Clean complete"
+fsd-test: fsd-test-instance fsd-test-capability
+	@echo "$(GREEN)✅ All FSD feature tests passed$(NC)"
 
-elixir-clean:
-	@echo "🧹 Cleaning Elixir build artifacts..."
-	@mix clean
-	@rm -rf _build deps mix.lock
+fsd-test-instance:
+	@echo "$(BLUE)🧪 Running instance_management feature tests...$(NC)"
+	@cargo test -p wasmatrix-control-plane --test instance_management --manifest-path=crates/Cargo.toml
 
-rust-clean:
-	@echo "🧹 Cleaning Rust build artifacts..."
+fsd-test-capability:
+	@echo "$(BLUE)🧪 Running capability_management feature tests...$(NC)"
+	@cargo test -p wasmatrix-control-plane --test capability --manifest-path=crates/Cargo.toml
+
+# =============================================================================
+# Workspace Management
+# =============================================================================
+
+workspace-tree:
+	@echo "$(BLUE)📁 Workspace structure:$(NC)"
+	@find crates -type f -name "*.rs" | grep -v target | head -30
+
+workspace-clean:
+	@echo "$(BLUE)🧹 Cleaning workspace...$(NC)"
 	@cargo clean --manifest-path=crates/Cargo.toml
+	@find crates -type d -name "target" -exec rm -rf {} + 2>/dev/null || true
 
 # =============================================================================
 # CI/Verification
 # =============================================================================
 
-ci: setup elixir-format-check elixir-compile elixir-test rust-format-check rust-build rust-test
-	@echo "✅ CI checks passed"
+ci: rust-format-check rust-build rust-test
+	@echo "$(GREEN)✅ CI checks passed$(NC)"
 
-verify: ci lint
-	@echo "✅ Full verification complete"
+verify: ci rust-lint rust-audit
+	@echo "$(GREEN)✅ Full verification complete$(NC)"
+
+# =============================================================================
+# Release
+# =============================================================================
+
+release: workspace-clean rust-release
+	@echo "$(GREEN)✅ Release build complete$(NC)"
+	@echo "$(YELLOW)Binaries located in crates/target/release/$(NC)"
+
+# =============================================================================
+# Clean
+# =============================================================================
+
+clean: workspace-clean
+	@echo "$(GREEN)✅ Clean complete$(NC)"
 
 # =============================================================================
 # Help
 # =============================================================================
 
 help:
-	@echo "Wasmatrix Build System"
+	@echo "$(BLUE)Wasmatrix Build System - Feature-Sliced Design$(NC)"
 	@echo ""
-	@echo "Usage: make [target]"
+	@echo "$(YELLOW)Usage: make [target]$(NC)"
 	@echo ""
-	@echo "Setup & Build:"
-	@echo "  setup          - Install all dependencies (Elixir + Rust)"
-	@echo "  build          - Build all components"
+	@echo "$(BLUE)Setup & Build:$(NC)"
+	@echo "  setup          - Install dependencies"
+	@echo "  build          - Build all Rust components"
 	@echo "  all            - Setup and build everything"
 	@echo ""
-	@echo "Testing:"
-	@echo "  test           - Run all tests"
-	@echo "  elixir-test    - Run Elixir tests only"
-	@echo "  rust-test      - Run Rust tests only"
+	@echo "$(BLUE)Testing:$(NC)"
+	@echo "  test           - Run all Rust tests"
+	@echo "  rust-test      - Run all Rust tests"
+	@echo "  rust-test-core  - Run wasmatrix-core tests"
+	@echo "  rust-test-cp    - Run wasmatrix-control-plane tests"
+	@echo "  rust-test-agent  - Run wasmatrix-agent tests"
+	@echo "  rust-test-providers  - Run wasmatrix-providers tests"
+	@echo "  rust-test-runtime  - Run wasmatrix-runtime tests"
+	@echo "  rust-test-watch - Watch and re-run tests"
 	@echo ""
-	@echo "Code Quality:"
-	@echo "  lint           - Run all linters"
-	@echo "  format         - Format all code"
-	@echo "  ci             - Run CI checks (format, compile, test)"
-	@echo "  verify         - Full verification (CI + lint)"
+	@echo "$(BLUE)Code Quality:$(NC)"
+	@echo "  lint           - Run clippy linter"
+	@echo "  format         - Format all Rust code"
+	@echo "  format-check   - Check formatting"
+	@echo "  audit          - Audit dependencies for vulnerabilities"
 	@echo ""
-	@echo "Development:"
-	@echo "  shell          - Start Elixir shell (iex -S mix)"
+	@echo "$(BLUE)Development:$(NC)"
+	@echo "  shell          - Start control plane"
 	@echo "  dev-control    - Start control plane"
 	@echo "  dev-agent      - Start node agent"
 	@echo "  dev-runtime    - Start runtime"
+	@echo "  dev-all        - Start all components"
 	@echo ""
-	@echo "Documentation:"
+	@echo "$(BLUE)Documentation:$(NC)"
 	@echo "  docs           - Generate all documentation"
-	@echo "  elixir-docs    - Generate Elixir docs"
-	@echo "  rust-docs      - Generate Rust docs"
+	@echo "  docs-open      - Generate and open docs"
 	@echo ""
-	@echo "Release:"
+	@echo "$(BLUE)Feature-Sliced Design:$(NC)"
+	@echo "  fsd-test       - Run all FSD feature tests"
+	@echo "  fsd-test-instance  - Test instance_management feature"
+	@echo "  fsd-test-capability - Test capability_management feature"
+	@echo ""
+	@echo "$(BLUE)Workspace:$(NC)"
+	@echo "  workspace-tree  - Show workspace structure"
+	@echo "  workspace-clean - Clean all artifacts"
+	@echo ""
+	@echo "$(BLUE)CI/Release:$(NC)"
+	@echo "  ci             - Run CI checks (format, build, test)"
+	@echo "  verify         - Full verification (CI + lint + audit)"
 	@echo "  release        - Create release build"
-	@echo "  rust-release   - Build Rust in release mode"
-	@echo ""
-	@echo "Maintenance:"
 	@echo "  clean          - Clean all build artifacts"
-	@echo "  help           - Show this help message"
+	@echo ""
+	@echo "$(BLUE)Examples:$(NC)"
+	@echo "  make build && make test"
+	@echo "  make rust-test-core"
+	@echo "  make lint && make test"
+	@echo "  make dev-control"

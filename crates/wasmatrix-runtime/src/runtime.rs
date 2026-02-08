@@ -11,3 +11,21 @@ impl Default for WasmRuntime {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wasm_runtime_creation() {
+        let runtime = WasmRuntime::new();
+        // Runtime is a placeholder, just test creation
+        let _ = runtime;
+    }
+
+    #[test]
+    fn test_wasm_runtime_default() {
+        let runtime: WasmRuntime = Default::default();
+        let _ = runtime;
+    }
+}
