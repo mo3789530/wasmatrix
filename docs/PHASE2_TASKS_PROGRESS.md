@@ -1,5 +1,22 @@
 # Phase 2 Task Progress
 
+## 2026-02-08 (Coverage uplift)
+
+- Goal: ensure workspace test coverage exceeds 70%.
+- Implemented:
+  - Added Node Agent server unit tests in `crates/wasmatrix-agent/src/server.rs`:
+    - invalid start request handling
+    - start/query/list/stop end-to-end flow
+  - Added protocol conversion tests in `crates/wasmatrix-proto/src/conversion.rs`:
+    - round-trip conversions for protocol/v1 messages
+    - error-path tests for missing/invalid enum values
+  - Added core protocol conversion-helper tests in `crates/wasmatrix-proto/src/protocol.rs`.
+- Verification:
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo tarpaulin --manifest-path crates/Cargo.toml --workspace --out Html --output-dir crates/coverage` passed
+  - Coverage result: `74.42%` (`1120/1505`), above `70%`
+
 ## 2026-02-08
 
 - Started Task `12.4`: Update Control Plane to route requests to Node Agents.

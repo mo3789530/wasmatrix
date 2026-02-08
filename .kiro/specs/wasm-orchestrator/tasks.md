@@ -359,12 +359,13 @@ The implementation prioritizes statelessness, capability-based security, and res
     - _Requirements: 3.5_
     - Implementation: Added recovery unit test `test_recover_node_state_applies_instance_statuses` in `features/node_routing/service/mod.rs`
 
-- [ ] 16. Phase 2 checkpoint
+- [~] 16. Phase 2 checkpoint
   - Verify Control Plane and Node Agent work as separate processes
   - Verify multi-node operation with etcd
   - Verify backward compatibility with Phase 1 single-node mode
   - Run all tests (unit and property)
   - Ensure all tests pass, ask the user if questions arise
+  - Progress update (2026-02-08): workspace build/test passed and coverage verification reached `74.42%` (`1120/1505`) via tarpaulin.
 
 ### Phase 3: Advanced Features
 

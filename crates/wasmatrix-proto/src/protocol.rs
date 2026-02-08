@@ -220,3 +220,76 @@ impl From<RestartPolicy> for wasmatrix_core::RestartPolicy {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_restart_policy_default() {
+        let policy = RestartPolicy::default();
+        assert_eq!(policy.policy_type, RestartPolicyType::Never);
+        assert_eq!(policy.max_retries, None);
+        assert_eq!(policy.backoff_seconds, None);
+    }
+
+    #[test]
+    fn test_instance_status_core_round_trip() {
+        let statuses = [
+            wasmatrix_core::InstanceStatus::Starting,
+            wasmatrix_core::InstanceStatus::Running,
+            wasmatrix_core::InstanceStatus::Stopped,
+            wasmatrix_core::InstanceStatus::Crashed,
+        ];
+
+        for status in statuses {
+            let proto_status: InstanceStatus = status.into();
+            let round_trip: wasmatrix_core::InstanceStatus = proto_status.into();
+            assert_eq!(round_trip, status);
+        }
+    }
+
+    #[test]
+    fn test_provider_type_core_round_trip() {
+        let providers = [
+            wasmatrix_core::ProviderType::Kv,
+            wasmatrix_core::ProviderType::Http,
+            wasmatrix_core::ProviderType::Messaging,
+        ];
+
+        for provider in providers {
+            let proto_provider: ProviderType = provider.into();
+            let round_trip: wasmatrix_core::ProviderType = proto_provider.into();
+            assert_eq!(round_trip, provider);
+        }
+    }
+
+    #[test]
+    fn test_restart_policy_core_round_trip() {
+        let policies = [
+            wasmatrix_core::RestartPolicy {
+                policy_type: wasmatrix_core::RestartPolicyType::Never,
+                max_retries: None,
+                backoff_seconds: None,
+            },
+            wasmatrix_core::RestartPolicy {
+                policy_type: wasmatrix_core::RestartPolicyType::Always,
+                max_retries: Some(1),
+                backoff_seconds: Some(1),
+            },
+            wasmatrix_core::RestartPolicy {
+                policy_type: wasmatrix_core::RestartPolicyType::OnFailure,
+                max_retries: Some(5),
+                backoff_seconds: Some(10),
+            },
+        ];
+
+        for policy in policies {
+            let proto_policy: RestartPolicy = policy.clone().into();
+            let round_trip: wasmatrix_core::RestartPolicy = proto_policy.into();
+            assert_eq!(round_trip.policy_type, policy.policy_type);
+            assert_eq!(round_trip.max_retries, policy.max_retries);
+            assert_eq!(round_trip.backoff_seconds, policy.backoff_seconds);
+        }
+    }
+}

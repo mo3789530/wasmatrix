@@ -219,3 +219,106 @@ impl NodeAgentService for NodeAgentServer {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tonic::Request;
+    use wasmatrix_proto::v1::node_agent_service_server::NodeAgentService;
+    use wasmatrix_proto::v1::{
+        CapabilityAssignment as ProtoCapabilityAssignment, InstanceStatus as ProtoInstanceStatus,
+        ProviderType as ProtoProviderType, RestartPolicy as ProtoRestartPolicy,
+        RestartPolicyType as ProtoRestartPolicyType,
+    };
+
+    fn create_valid_wasm_module() -> Vec<u8> {
+        vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+    }
+
+    fn create_server() -> NodeAgentServer {
+        let agent = Arc::new(NodeAgent::new("test-node").expect("agent should be created"));
+        NodeAgentServer::new(agent, None)
+    }
+
+    #[tokio::test]
+    async fn test_start_instance_invalid_request_returns_error_response() {
+        let server = create_server();
+        let request = StartInstanceRequest {
+            instance_id: "instance-invalid".to_string(),
+            module_bytes: create_valid_wasm_module(),
+            capabilities: vec![],
+            restart_policy: None,
+        };
+
+        let response = server
+            .start_instance(Request::new(request))
+            .await
+            .expect("rpc should respond")
+            .into_inner();
+
+        assert!(!response.success);
+        assert_eq!(response.error_code.as_deref(), Some("INVALID_REQUEST"));
+    }
+
+    #[tokio::test]
+    async fn test_start_query_list_stop_instance_flow() {
+        let server = create_server();
+        let instance_id = "instance-1".to_string();
+        let request = StartInstanceRequest {
+            instance_id: instance_id.clone(),
+            module_bytes: create_valid_wasm_module(),
+            capabilities: vec![ProtoCapabilityAssignment {
+                instance_id: instance_id.clone(),
+                capability_id: "kv-1".to_string(),
+                provider_type: ProtoProviderType::Kv as i32,
+                permissions: vec!["kv:read".to_string()],
+            }],
+            restart_policy: Some(ProtoRestartPolicy {
+                policy_type: ProtoRestartPolicyType::Always as i32,
+                max_retries: None,
+                backoff_seconds: None,
+            }),
+        };
+
+        let start_response = server
+            .start_instance(Request::new(request))
+            .await
+            .expect("start rpc should respond")
+            .into_inner();
+        assert!(start_response.success);
+        assert!(start_response.error_code.is_none());
+
+        let query_response = server
+            .query_instance(Request::new(QueryInstanceRequest {
+                instance_id: instance_id.clone(),
+            }))
+            .await
+            .expect("query rpc should respond")
+            .into_inner();
+        assert!(query_response.success);
+        let metadata = query_response
+            .instance
+            .expect("query should include instance");
+        assert_eq!(metadata.instance_id, instance_id);
+        assert_eq!(metadata.status, ProtoInstanceStatus::Running as i32);
+
+        let list_response = server
+            .list_instances(Request::new(ListInstancesRequest {}))
+            .await
+            .expect("list rpc should respond")
+            .into_inner();
+        assert!(list_response.success);
+        assert_eq!(list_response.instances.len(), 1);
+        assert_eq!(list_response.instances[0].instance_id, "instance-1");
+
+        let stop_response = server
+            .stop_instance(Request::new(StopInstanceRequest {
+                instance_id: "instance-1".to_string(),
+            }))
+            .await
+            .expect("stop rpc should respond")
+            .into_inner();
+        assert!(stop_response.success);
+        assert!(stop_response.error_code.is_none());
+    }
+}
