@@ -35,6 +35,7 @@ tonic-reflection = "0.11"
 axum = "0.7"
 tower = "0.4"
 tower-http = "0.5"
+prometheus = "0.13"
 
 # Hashing
 md5 = "0.7"

@@ -171,6 +171,60 @@ impl TryFrom<v1::ListInstancesResponse> for protocol::ListInstancesResponse {
     }
 }
 
+// InvokeCapabilityRequest
+impl From<protocol::InvokeCapabilityRequest> for v1::InvokeCapabilityRequest {
+    fn from(req: protocol::InvokeCapabilityRequest) -> Self {
+        Self {
+            instance_id: req.instance_id,
+            capability_id: req.capability_id,
+            provider_type: v1::ProviderType::from(req.provider_type).into(),
+            operation: req.operation,
+            params_json: req.params_json,
+            permissions: req.permissions,
+        }
+    }
+}
+
+impl TryFrom<v1::InvokeCapabilityRequest> for protocol::InvokeCapabilityRequest {
+    type Error = String;
+
+    fn try_from(req: v1::InvokeCapabilityRequest) -> Result<Self, Self::Error> {
+        Ok(Self {
+            instance_id: req.instance_id,
+            capability_id: req.capability_id,
+            provider_type: v1::ProviderType::try_from(req.provider_type)
+                .map_err(|_| "Invalid ProviderType")?
+                .try_into()?,
+            operation: req.operation,
+            params_json: req.params_json,
+            permissions: req.permissions,
+        })
+    }
+}
+
+// InvokeCapabilityResponse
+impl From<protocol::InvokeCapabilityResponse> for v1::InvokeCapabilityResponse {
+    fn from(res: protocol::InvokeCapabilityResponse) -> Self {
+        Self {
+            success: res.success,
+            message: res.message,
+            result_json: res.result_json,
+            error_code: res.error_code,
+        }
+    }
+}
+
+impl From<v1::InvokeCapabilityResponse> for protocol::InvokeCapabilityResponse {
+    fn from(res: v1::InvokeCapabilityResponse) -> Self {
+        Self {
+            success: res.success,
+            message: res.message,
+            result_json: res.result_json,
+            error_code: res.error_code,
+        }
+    }
+}
+
 // RegisterNodeRequest
 impl From<protocol::RegisterNodeRequest> for v1::RegisterNodeRequest {
     fn from(req: protocol::RegisterNodeRequest) -> Self {
@@ -549,6 +603,26 @@ mod tests {
         };
         let v1_list: v1::ListInstancesResponse = list_res.clone().into();
         let _: protocol::ListInstancesResponse = v1_list.try_into().unwrap();
+
+        let invoke_req = protocol::InvokeCapabilityRequest {
+            instance_id: "instance-1".to_string(),
+            capability_id: "http-provider".to_string(),
+            provider_type: protocol::ProviderType::Http,
+            operation: "request".to_string(),
+            params_json: "{\"method\":\"GET\",\"url\":\"https://example.com\"}".to_string(),
+            permissions: vec!["http:request".to_string()],
+        };
+        let v1_invoke_req: v1::InvokeCapabilityRequest = invoke_req.clone().into();
+        let _: protocol::InvokeCapabilityRequest = v1_invoke_req.try_into().unwrap();
+
+        let invoke_res = protocol::InvokeCapabilityResponse {
+            success: true,
+            message: "ok".to_string(),
+            result_json: Some("{\"status\":200}".to_string()),
+            error_code: None,
+        };
+        let _: protocol::InvokeCapabilityResponse =
+            v1::InvokeCapabilityResponse::from(invoke_res.clone()).into();
 
         let reg_req = protocol::RegisterNodeRequest {
             node_id: "node-1".to_string(),

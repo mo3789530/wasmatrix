@@ -1,22 +1,34 @@
+use axum::routing::get;
+use axum::Router;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tonic::transport::Server;
 use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
 use wasmatrix_control_plane::features::node_routing::controller::NodeRoutingController;
 use wasmatrix_control_plane::features::node_routing::repo::etcd::{
     validate_etcd_config, EtcdConfig, EtcdMetadataRepository,
 };
 use wasmatrix_control_plane::features::node_routing::repo::InMemoryNodeRoutingRepository;
 use wasmatrix_control_plane::features::node_routing::service::NodeRoutingService;
+use wasmatrix_control_plane::features::observability::controller::global_observability_controller;
 use wasmatrix_control_plane::server::ControlPlaneServer;
 use wasmatrix_proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("wasmatrix_control_plane=info,info")),
+        )
+        .init();
 
     let control_plane_addr = std::env::var("CONTROL_PLANE_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:50051".to_string())
+        .parse::<SocketAddr>()?;
+    let metrics_addr = std::env::var("METRICS_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:9100".to_string())
         .parse::<SocketAddr>()?;
 
     info!("Starting Wasmatrix Control Plane");
@@ -69,6 +81,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = ControlPlaneServer::new(control_plane, routing_controller);
 
     info!(%control_plane_addr, "Control Plane initialized successfully");
+    tokio::spawn(async move {
+        let app = Router::new().route("/metrics", get(metrics_handler));
+        let listener = match tokio::net::TcpListener::bind(metrics_addr).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                warn!(error = %error, %metrics_addr, "Failed to bind metrics endpoint");
+                return;
+            }
+        };
+        info!(%metrics_addr, "Metrics endpoint listening");
+        if let Err(error) = axum::serve(listener, app).await {
+            warn!(error = %error, "Metrics endpoint exited with error");
+        }
+    });
 
     Server::builder()
         .add_service(ControlPlaneServiceServer::new(server))
@@ -76,4 +102,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     Ok(())
+}
+
+async fn metrics_handler() -> String {
+    global_observability_controller()
+        .render_metrics()
+        .unwrap_or_else(|e| format!("metrics_render_error{{reason=\"{}\"}} 1", e))
 }

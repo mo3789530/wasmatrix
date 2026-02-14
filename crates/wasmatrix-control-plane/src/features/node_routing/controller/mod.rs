@@ -7,6 +7,7 @@ use crate::shared::types::{
     InstanceMetadata, InstanceStatusResponse, QueryInstanceRequest, StartInstanceRequest,
 };
 use crate::ControlPlane;
+use wasmatrix_core::CapabilityAssignment;
 
 pub struct NodeRoutingController {
     service: Arc<NodeRoutingService>,
@@ -57,6 +58,18 @@ impl NodeRoutingController {
 
     pub async fn list_instances(&self) -> ControlPlaneResult<Vec<InstanceMetadata>> {
         self.service.route_list_instances().await
+    }
+
+    pub async fn invoke_capability(
+        &self,
+        instance_id: &str,
+        assignment: CapabilityAssignment,
+        operation: &str,
+        params: serde_json::Value,
+    ) -> ControlPlaneResult<serde_json::Value> {
+        self.service
+            .route_capability_invocation(instance_id, assignment, operation, params)
+            .await
     }
 
     pub async fn recover_node_state(

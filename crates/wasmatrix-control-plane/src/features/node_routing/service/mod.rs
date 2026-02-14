@@ -3,16 +3,19 @@ use std::sync::Arc;
 use chrono::{DateTime, TimeZone, Utc};
 use tonic::transport::Channel;
 use tracing::warn;
+use wasmatrix_core::capability::PermissionEnforcer;
+use wasmatrix_core::CapabilityAssignment;
 use wasmatrix_proto::v1::node_agent_service_client::NodeAgentServiceClient;
 use wasmatrix_proto::v1::{
-    ListInstancesRequest, QueryInstanceRequest, StartInstanceRequest as ProtoStartInstanceRequest,
-    StopInstanceRequest,
+    InvokeCapabilityRequest, ListInstancesRequest, QueryInstanceRequest,
+    StartInstanceRequest as ProtoStartInstanceRequest, StopInstanceRequest,
 };
 
 use crate::features::node_routing::repo::etcd::EtcdMetadataRepository;
 use crate::features::node_routing::repo::{
     NodeAgentRecord, NodeRoutingRepository, ProviderMetadata,
 };
+use crate::features::observability::controller::global_observability_controller;
 use crate::shared::error::{ControlPlaneError, ControlPlaneResult};
 use crate::shared::types::{
     InstanceMetadata, InstanceStatusResponse, QueryInstanceRequest as CoreQueryRequest,
@@ -20,6 +23,7 @@ use crate::shared::types::{
 };
 use crate::ControlPlane;
 use std::sync::Mutex;
+use std::time::Instant;
 
 pub struct NodeRoutingService {
     repo: Arc<dyn NodeRoutingRepository>,
@@ -338,6 +342,102 @@ impl NodeRoutingService {
         Ok(all_instances)
     }
 
+    pub async fn route_capability_invocation(
+        &self,
+        instance_id: &str,
+        assignment: CapabilityAssignment,
+        operation: &str,
+        params: serde_json::Value,
+    ) -> ControlPlaneResult<serde_json::Value> {
+        let started = Instant::now();
+        let observability = global_observability_controller();
+        if assignment.instance_id != instance_id {
+            return Err(ControlPlaneError::PermissionDenied(
+                "capability assignment instance_id mismatch".to_string(),
+            ));
+        }
+
+        self.repo
+            .lookup_instance_node(instance_id)
+            .await?
+            .ok_or_else(|| ControlPlaneError::InstanceNotFound(instance_id.to_string()))?;
+
+        let required_permission =
+            PermissionEnforcer::required_permission(assignment.provider_type, operation)
+                .ok_or_else(|| {
+                    ControlPlaneError::ValidationError(format!(
+                        "unknown operation '{}' for provider type {:?}",
+                        operation, assignment.provider_type
+                    ))
+                })?;
+
+        if !assignment.has_permission(required_permission) {
+            return Err(ControlPlaneError::PermissionDenied(format!(
+                "instance '{}' lacks required permission '{}'",
+                instance_id, required_permission
+            )));
+        }
+
+        let providers = self.repo.list_provider_metadata().await?;
+        let provider = providers
+            .into_iter()
+            .find(|p| p.provider_id == assignment.capability_id)
+            .ok_or_else(|| {
+                ControlPlaneError::CapabilityNotFound(format!(
+                    "provider '{}' metadata not found",
+                    assignment.capability_id
+                ))
+            })?;
+
+        let expected_type = provider_type_to_string(assignment.provider_type);
+        if provider.provider_type != expected_type {
+            return Err(ControlPlaneError::ValidationError(format!(
+                "provider type mismatch: expected '{}', got '{}'",
+                expected_type, provider.provider_type
+            )));
+        }
+
+        let node = self
+            .repo
+            .get_node(&provider.node_id)
+            .await?
+            .ok_or_else(|| {
+                ControlPlaneError::InstanceNotFound(format!("node {}", provider.node_id))
+            })?;
+
+        let mut client = connect_client(&node.node_address)
+            .await
+            .map_err(ControlPlaneError::Timeout)?;
+
+        let response = client
+            .invoke_capability(tonic::Request::new(InvokeCapabilityRequest {
+                instance_id: instance_id.to_string(),
+                capability_id: assignment.capability_id.clone(),
+                provider_type: wasmatrix_proto::v1::ProviderType::from(
+                    wasmatrix_proto::protocol::ProviderType::from(assignment.provider_type),
+                ) as i32,
+                operation: operation.to_string(),
+                params_json: params.to_string(),
+                permissions: assignment.permissions.clone(),
+            }))
+            .await
+            .map_err(|e| ControlPlaneError::Timeout(e.to_string()))?;
+
+        if !response.get_ref().success {
+            return Err(ControlPlaneError::WasmRuntimeError(
+                response.get_ref().message.clone(),
+            ));
+        }
+        observability.record_invocation_latency(started.elapsed().as_secs_f64());
+
+        let result_json = response.get_ref().result_json.clone().unwrap_or_default();
+        serde_json::from_str(&result_json).map_err(|e| {
+            ControlPlaneError::ValidationError(format!(
+                "invalid result_json from provider invocation: {e}"
+            ))
+        })
+    }
+
     /// Recover control-plane state for a registered node by querying NodeAgent `ListInstances`.
     pub async fn recover_node_state(
         &self,
@@ -459,6 +559,14 @@ fn required_provider_types(request: &StartInstanceRequest) -> Vec<String> {
     providers
 }
 
+fn provider_type_to_string(provider_type: wasmatrix_core::ProviderType) -> &'static str {
+    match provider_type {
+        wasmatrix_core::ProviderType::Kv => "kv",
+        wasmatrix_core::ProviderType::Http => "http",
+        wasmatrix_core::ProviderType::Messaging => "messaging",
+    }
+}
+
 fn select_candidate_nodes(
     mut nodes: Vec<NodeAgentRecord>,
     request: &StartInstanceRequest,
@@ -494,6 +602,21 @@ mod tests {
     use crate::features::node_routing::repo::etcd::EtcdMetadataRepository;
     use crate::features::node_routing::repo::InMemoryNodeRoutingRepository;
     use crate::shared::types::RestartPolicy;
+    use wasmatrix_core::{CapabilityAssignment, ProviderType};
+
+    fn assignment(
+        instance_id: &str,
+        capability_id: &str,
+        provider_type: ProviderType,
+        permissions: Vec<&str>,
+    ) -> CapabilityAssignment {
+        CapabilityAssignment::new(
+            instance_id.to_string(),
+            capability_id.to_string(),
+            provider_type,
+            permissions.into_iter().map(|p| p.to_string()).collect(),
+        )
+    }
 
     #[tokio::test]
     async fn test_start_route_without_nodes() {
@@ -632,6 +755,142 @@ mod tests {
             .unwrap();
         assert_eq!(inst_a.status, wasmatrix_core::InstanceStatus::Running);
         assert_eq!(inst_b.status, wasmatrix_core::InstanceStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_route_capability_invocation_requires_assignment_permission() {
+        let repo = Arc::new(InMemoryNodeRoutingRepository::new());
+        let service = NodeRoutingService::new(repo.clone());
+
+        repo.upsert_node(NodeAgentRecord {
+            node_id: "node-inst".to_string(),
+            node_address: "http://127.0.0.1:50099".to_string(),
+            capabilities: vec!["http".to_string()],
+            max_instances: 10,
+            active_instances: 0,
+            last_heartbeat: Some(Utc::now()),
+            available: true,
+        })
+        .await
+        .unwrap();
+
+        repo.assign_instance("inst-1".to_string(), "node-inst".to_string())
+            .await
+            .unwrap();
+
+        let result = service
+            .route_capability_invocation(
+                "inst-1",
+                assignment("inst-1", "http-provider-1", ProviderType::Http, vec![]),
+                "request",
+                serde_json::json!({"method":"GET","url":"https://example.com"}),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ControlPlaneError::PermissionDenied(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_route_capability_invocation_requires_registered_provider() {
+        let repo = Arc::new(InMemoryNodeRoutingRepository::new());
+        let service = NodeRoutingService::new(repo.clone());
+
+        repo.upsert_node(NodeAgentRecord {
+            node_id: "node-inst".to_string(),
+            node_address: "http://127.0.0.1:50099".to_string(),
+            capabilities: vec!["http".to_string()],
+            max_instances: 10,
+            active_instances: 0,
+            last_heartbeat: Some(Utc::now()),
+            available: true,
+        })
+        .await
+        .unwrap();
+
+        repo.assign_instance("inst-1".to_string(), "node-inst".to_string())
+            .await
+            .unwrap();
+
+        let result = service
+            .route_capability_invocation(
+                "inst-1",
+                assignment(
+                    "inst-1",
+                    "missing-provider",
+                    ProviderType::Http,
+                    vec!["http:request"],
+                ),
+                "request",
+                serde_json::json!({"method":"GET","url":"https://example.com"}),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ControlPlaneError::CapabilityNotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_route_capability_invocation_network_failure_for_remote_provider() {
+        let repo = Arc::new(InMemoryNodeRoutingRepository::new());
+        let service = NodeRoutingService::new(repo.clone());
+
+        repo.upsert_node(NodeAgentRecord {
+            node_id: "node-inst".to_string(),
+            node_address: "http://127.0.0.1:50099".to_string(),
+            capabilities: vec!["http".to_string()],
+            max_instances: 10,
+            active_instances: 0,
+            last_heartbeat: Some(Utc::now()),
+            available: true,
+        })
+        .await
+        .unwrap();
+
+        repo.upsert_node(NodeAgentRecord {
+            node_id: "provider-node".to_string(),
+            node_address: "http://127.0.0.1:65098".to_string(),
+            capabilities: vec!["http".to_string()],
+            max_instances: 10,
+            active_instances: 0,
+            last_heartbeat: Some(Utc::now()),
+            available: true,
+        })
+        .await
+        .unwrap();
+
+        repo.upsert_provider_metadata(ProviderMetadata {
+            provider_id: "http-provider-1".to_string(),
+            provider_type: "http".to_string(),
+            node_id: "provider-node".to_string(),
+            last_updated: Utc::now(),
+        })
+        .await
+        .unwrap();
+
+        repo.assign_instance("inst-1".to_string(), "node-inst".to_string())
+            .await
+            .unwrap();
+
+        let result = service
+            .route_capability_invocation(
+                "inst-1",
+                assignment(
+                    "inst-1",
+                    "http-provider-1",
+                    ProviderType::Http,
+                    vec!["http:request"],
+                ),
+                "request",
+                serde_json::json!({"method":"GET","url":"https://example.com"}),
+            )
+            .await;
+
+        assert!(matches!(result, Err(ControlPlaneError::Timeout(_))));
     }
 
     // Property 12: Node Failure Resilience

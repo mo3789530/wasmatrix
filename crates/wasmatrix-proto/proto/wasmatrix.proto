@@ -7,6 +7,7 @@ service NodeAgentService {
   rpc StopInstance(StopInstanceRequest) returns (StopInstanceResponse);
   rpc QueryInstance(QueryInstanceRequest) returns (QueryInstanceResponse);
   rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc InvokeCapability(InvokeCapabilityRequest) returns (InvokeCapabilityResponse);
 }
 
 service ControlPlaneService {
@@ -54,6 +55,22 @@ message ListInstancesRequest {}
 message ListInstancesResponse {
   bool success = 1;
   repeated InstanceMetadata instances = 2;
+}
+
+message InvokeCapabilityRequest {
+  string instance_id = 1;
+  string capability_id = 2;
+  ProviderType provider_type = 3;
+  string operation = 4;
+  string params_json = 5;
+  repeated string permissions = 6;
+}
+
+message InvokeCapabilityResponse {
+  bool success = 1;
+  string message = 2;
+  optional string result_json = 3;
+  optional string error_code = 4;
 }
 
 message RegisterNodeRequest {

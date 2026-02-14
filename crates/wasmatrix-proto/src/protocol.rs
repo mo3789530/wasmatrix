@@ -54,6 +54,24 @@ pub struct ListInstancesResponse {
     pub instances: Vec<InstanceMetadata>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InvokeCapabilityRequest {
+    pub instance_id: String,
+    pub capability_id: String,
+    pub provider_type: ProviderType,
+    pub operation: String,
+    pub params_json: String,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InvokeCapabilityResponse {
+    pub success: bool,
+    pub message: String,
+    pub result_json: Option<String>,
+    pub error_code: Option<String>,
+}
+
 // Control Plane Service Messages
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RegisterNodeRequest {
