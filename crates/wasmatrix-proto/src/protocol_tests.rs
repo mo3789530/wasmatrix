@@ -150,6 +150,34 @@ mod tests {
     }
 
     #[test]
+    fn test_invoke_capability_messages_serialization() {
+        let request = InvokeCapabilityRequest {
+            instance_id: "instance-1".to_string(),
+            capability_id: "http-provider".to_string(),
+            provider_type: ProviderType::Http,
+            operation: "request".to_string(),
+            params_json: "{\"method\":\"GET\",\"url\":\"https://example.com\"}".to_string(),
+            permissions: vec![
+                "http:request".to_string(),
+                "http:domain:example.com".to_string(),
+            ],
+        };
+        let req_json = serde_json::to_string(&request).unwrap();
+        let req_rt: InvokeCapabilityRequest = serde_json::from_str(&req_json).unwrap();
+        assert_eq!(req_rt, request);
+
+        let response = InvokeCapabilityResponse {
+            success: true,
+            message: "ok".to_string(),
+            result_json: Some("{\"status\":200}".to_string()),
+            error_code: None,
+        };
+        let res_json = serde_json::to_string(&response).unwrap();
+        let res_rt: InvokeCapabilityResponse = serde_json::from_str(&res_json).unwrap();
+        assert_eq!(res_rt, response);
+    }
+
+    #[test]
     fn test_restart_policy_default() {
         let policy = RestartPolicy::default();
 

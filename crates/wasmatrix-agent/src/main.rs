@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::Server;
 use tracing::{info, warn, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use wasmatrix_agent::features::status_reporting::controller::StatusReportController;
 use wasmatrix_agent::features::status_reporting::repo::StatusReportRepo;
 use wasmatrix_agent::features::status_reporting::service::StatusReportService;
@@ -15,6 +15,10 @@ use wasmatrix_proto::v1::node_agent_service_server::NodeAgentServiceServer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("wasmatrix_agent=info,info")),
+        )
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 

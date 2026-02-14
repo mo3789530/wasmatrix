@@ -359,7 +359,7 @@ The implementation prioritizes statelessness, capability-based security, and res
     - _Requirements: 3.5_
     - Implementation: Added recovery unit test `test_recover_node_state_applies_instance_statuses` in `features/node_routing/service/mod.rs`
 
-- [~] 16. Phase 2 checkpoint
+- [x] 16. Phase 2 checkpoint
   - Verify Control Plane and Node Agent work as separate processes
   - Verify multi-node operation with etcd
   - Verify backward compatibility with Phase 1 single-node mode
@@ -369,102 +369,135 @@ The implementation prioritizes statelessness, capability-based security, and res
 
 ### Phase 3: Advanced Features
 
-- [ ] 17. Implement HTTP and Messaging capability providers
-  - [ ] 17.1 Create HTTP Capability Provider
+- [x] 17. Implement HTTP and Messaging capability providers
+  - [x] 17.1 Create HTTP Capability Provider
     - Implement HTTP client using reqwest
     - Support GET, POST, PUT, DELETE methods
     - Implement permission validation (http:request, http:domain:<domain>)
     - _Requirements: 5.2_
+    - Implementation: Added FSD module `features/http_provider` in `wasmatrix-providers` with `controller/service/repo` split
+    - Implementation: Added `HttpCapabilityProvider` using `reqwest` (blocking) and permission checks for `http:request` + optional domain-scoped permissions
+    - Implementation: Added unit tests for controller/service/repo/provider paths
 
-  - [ ] 17.2 Create Messaging Capability Provider
+  - [x] 17.2 Create Messaging Capability Provider
     - Implement pub/sub using NATS or similar
     - Support publish, subscribe, unsubscribe operations
     - Implement permission validation (msg:publish:<topic>, msg:subscribe:<topic>)
     - _Requirements: 5.3_
+    - Implementation: Added FSD module `features/messaging_provider` in `wasmatrix-providers` with `controller/service/repo` split
+    - Implementation: Added `MessagingCapabilityProvider` with in-memory pub/sub repository and `publish|subscribe|unsubscribe` invocation paths
+    - Implementation: Added topic-scoped permission checks for `msg:publish:<topic>` and `msg:subscribe:<topic>` (plus generic `msg:publish`/`msg:subscribe`)
 
-  - [ ]* 17.3 Write unit tests for HTTP and Messaging providers
+  - [x]* 17.3 Write unit tests for HTTP and Messaging providers
     - Test HTTP operations (GET, POST, etc.)
     - Test messaging pub/sub
     - Test permission validation
     - _Requirements: 5.2, 5.3_
+    - Implementation: Expanded HTTP service tests for generic permission mode and method pass-through (including DELETE path)
+    - Implementation: Expanded Messaging tests for topic-scope deny cases, generic subscribe allow, and subscribe/unsubscribe lifecycle via provider invoke
 
-- [ ] 18. Implement distributed capability providers
-  - [ ] 18.1 Support capability providers on different nodes
+- [x] 18. Implement distributed capability providers
+  - [x] 18.1 Support capability providers on different nodes
     - Implement provider discovery and registration
     - Implement remote capability invocation via gRPC
     - Route invocations to remote providers when needed
     - _Requirements: 12.1, 12.3_
+    - Implementation: Extended gRPC protocol and NodeAgent service with `InvokeCapability` request/response path
+    - Implementation: Added Control Plane routing method to discover provider node from provider metadata and invoke provider remotely via gRPC
+    - Implementation: Added Node Agent capability invocation execution for KV/HTTP/Messaging providers
 
-  - [ ] 18.2 Maintain security model with distributed providers
+  - [x] 18.2 Maintain security model with distributed providers
     - Enforce permissions for remote invocations
     - Ensure instance isolation with remote providers
     - Validate capability assignments before remote invocation
     - _Requirements: 12.4_
+    - Implementation: Enforced required permission checks using `PermissionEnforcer` before remote invocation
+    - Implementation: Validated assignment/instance binding (`assignment.instance_id == instance_id`) and existing instance assignment
+    - Implementation: Validated provider type consistency and mapped missing providers to capability-not-found errors
 
   - [ ]* 18.3 Write property test for distributed provider invocation
     - **Property 17: Distributed Capability Provider Invocation Routing**
     - **Validates: Requirements 12.1, 12.3, 12.4**
 
-  - [ ]* 18.4 Write unit tests for distributed providers
+  - [x]* 18.4 Write unit tests for distributed providers
     - Test remote provider invocation
     - Test permission enforcement with remote providers
     - Test network failure handling
     - _Requirements: 12.1, 12.3, 12.4_
+    - Implementation: Added unit tests in `node_routing/service` for permission-denied, missing-provider, and remote-provider network-failure paths
+    - Implementation: Added Node Agent invocation tests for distributed capability invocation success/failure cases
 
-- [ ] 19. Implement graceful provider shutdown handling
-  - [ ] 19.1 Handle provider lifecycle independently
+- [x] 19. Implement graceful provider shutdown handling
+  - [x] 19.1 Handle provider lifecycle independently
     - Support starting and stopping providers independently
     - Handle capability invocations when provider is stopped
     - Return appropriate errors when provider unavailable
     - _Requirements: 16.1, 16.2, 16.3_
+    - Implementation: Added FSD module `features/provider_lifecycle` in `wasmatrix-providers` with `controller/service/repo` split
+    - Implementation: Integrated provider lifecycle checks into Node Agent capability invocation path
+    - Implementation: Added explicit start/stop provider controls in `NodeAgentServer`
 
-  - [ ]* 19.2 Write property test for graceful provider shutdown
+  - [x]* 19.2 Write property test for graceful provider shutdown
     - **Property 20: Graceful Provider Shutdown Handling**
     - **Validates: Requirements 16.3**
+    - Implementation: Added 100-iteration property test `property_graceful_provider_shutdown_handling` in lifecycle service tests
 
-  - [ ]* 19.3 Write unit tests for provider lifecycle
+  - [x]* 19.3 Write unit tests for provider lifecycle
     - Test starting providers independently
     - Test stopping providers independently
     - Test error handling when provider stopped
     - _Requirements: 16.1, 16.2, 16.3_
+    - Implementation: Added unit tests in provider lifecycle controller/service/repo and Node Agent invoke flow for stopped/restarted provider behavior
 
-- [ ] 20. Add micro-kvm execution support (optional)
-  - [ ] 20.1 Integrate micro-kvm runtime
+- [x] 20. Add micro-kvm execution support (optional)
+  - [x] 20.1 Integrate micro-kvm runtime
     - Add micro-kvm as alternative execution path
     - Support configuration to choose wasmtime vs micro-kvm
     - Ensure same capability provider interface works with both
     - _Requirements: 12.2_
+    - Implementation: Extended `wasmatrix-runtime` with `RuntimeBackend::{Wasmtime, MicroKvm}` and env-based backend selection (`WASM_RUNTIME_BACKEND`)
+    - Implementation: Added shared capability invocation path via `CapabilityManager` used by both backends
 
-  - [ ]* 20.2 Write unit test for micro-kvm execution
+  - [x]* 20.2 Write unit test for micro-kvm execution
     - Test instance execution with micro-kvm
     - Test capability invocation with micro-kvm
     - _Requirements: 12.2_
+    - Implementation: Added runtime unit tests for micro-kvm execution path and backend-agnostic capability invocation
 
-- [ ] 21. Implement observability and monitoring
-  - [ ] 21.1 Add metrics collection
+- [x] 21. Implement observability and monitoring
+  - [x] 21.1 Add metrics collection
     - Expose metrics: active instance count, crash rate, invocation latency
     - Use prometheus or similar for metrics export
     - Add metrics for API request rate and latency
     - Add metrics for node agent health
+    - Implementation: Added FSD `observability` module (`controller/service/repo`) in control-plane backed by Prometheus metrics
+    - Implementation: Added `/metrics` endpoint in control-plane main process (config: `METRICS_ADDR`, default `127.0.0.1:9100`)
+    - Implementation: Wired metrics updates for API request rate/latency, active instance gauge, crash counter, invocation latency histogram, and node health gauge
 
-  - [ ] 21.2 Implement structured logging
+  - [x] 21.2 Implement structured logging
     - Use tracing for structured logging with consistent fields
     - Implement log levels (DEBUG, INFO, WARN, ERROR)
     - Add correlation IDs for request tracing
     - Support centralized log aggregation
+    - Implementation: Standardized tracing subscriber setup with env filter in control-plane and agent
+    - Implementation: Added correlation ID extraction/generation (`x-correlation-id` or UUID fallback) and structured request logs in gRPC handlers
 
   - [ ] 21.3 Add distributed tracing (optional)
     - Integrate OpenTelemetry for distributed tracing
     - Trace instance lifecycle from API to runtime
     - Trace capability invocations across network
 
-- [ ] 22. Final Phase 3 checkpoint and integration testing
+- [x] 22. Final Phase 3 checkpoint and integration testing
   - Verify distributed capability providers work correctly
   - Verify HTTP and Messaging providers function properly
   - Verify graceful provider shutdown handling
   - Run comprehensive integration tests across all phases
   - Run all unit and property tests
   - Ensure all tests pass, ask the user if questions arise
+  - Implementation: Verified distributed provider invocation path (`InvokeCapability`) across proto/control-plane/agent
+  - Implementation: Verified HTTP and Messaging provider behavior and permission enforcement with expanded unit tests
+  - Implementation: Verified graceful provider lifecycle stop/start handling in Node Agent invoke path
+  - Verification: `cargo test --manifest-path crates/Cargo.toml --workspace` passed (all crates)
 
 - [ ] 23. Documentation and deployment preparation
   - Write API documentation for Control Plane endpoints

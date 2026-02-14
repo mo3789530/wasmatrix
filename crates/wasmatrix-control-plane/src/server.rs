@@ -1,6 +1,8 @@
 use crate::features::node_routing::controller::NodeRoutingController;
+use crate::features::observability::controller::global_observability_controller;
 use crate::ControlPlane;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tonic::{Request, Response, Status};
 use wasmatrix_proto::v1::control_plane_service_server::ControlPlaneService;
 use wasmatrix_proto::v1::{
@@ -30,17 +32,28 @@ impl ControlPlaneService for ControlPlaneServer {
         &self,
         request: Request<RegisterNodeRequest>,
     ) -> Result<Response<RegisterNodeResponse>, Status> {
+        let started = Instant::now();
+        let correlation_id = correlation_id_from_request(&request);
         let req = request.into_inner();
+        let observability = global_observability_controller();
 
-        self.node_routing_controller
+        let register_result = self
+            .node_routing_controller
             .register_node(
                 req.node_id.clone(),
                 req.node_address,
                 req.capabilities,
                 req.max_instances,
             )
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .await;
+        if let Err(error) = register_result {
+            observability.record_api_request(
+                "register_node",
+                "error",
+                started.elapsed().as_secs_f64(),
+            );
+            return Err(Status::internal(error.to_string()));
+        }
 
         match self
             .node_routing_controller
@@ -55,7 +68,14 @@ impl ControlPlaneService for ControlPlaneServer {
             }
         }
 
-        tracing::info!("Registered node: {}", req.node_id);
+        observability.set_node_health(&req.node_id, true);
+        observability.record_api_request("register_node", "ok", started.elapsed().as_secs_f64());
+
+        tracing::info!(
+            %correlation_id,
+            node_id = %req.node_id,
+            "Registered node"
+        );
 
         Ok(Response::new(RegisterNodeResponse {
             success: true,
@@ -68,13 +88,26 @@ impl ControlPlaneService for ControlPlaneServer {
         &self,
         request: Request<StatusReport>,
     ) -> Result<Response<StatusReportResponse>, Status> {
+        let started = Instant::now();
+        let correlation_id = correlation_id_from_request(&request);
         let req = request.into_inner();
-        tracing::debug!("Received status report from node: {}", req.node_id);
+        let observability = global_observability_controller();
+        tracing::debug!(%correlation_id, node_id = %req.node_id, "Received status report");
 
-        self.node_routing_controller
+        let status_result = self
+            .node_routing_controller
             .record_status_report(&req.node_id, req.timestamp)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .await;
+        if let Err(error) = status_result {
+            observability.set_node_health(&req.node_id, false);
+            observability.record_api_request(
+                "report_status",
+                "error",
+                started.elapsed().as_secs_f64(),
+            );
+            return Err(Status::internal(error.to_string()));
+        }
+        observability.set_node_health(&req.node_id, true);
 
         let mut control_plane = self
             .control_plane
@@ -88,6 +121,9 @@ impl ControlPlaneService for ControlPlaneServer {
                 wasmatrix_proto::protocol::InstanceStatus::try_from(proto_status)
                     .map_err(Status::invalid_argument)?
                     .into();
+            if matches!(core_status, wasmatrix_core::InstanceStatus::Crashed) {
+                observability.record_crash();
+            }
 
             if let Err(error) =
                 control_plane.update_instance_status(&update.instance_id, core_status)
@@ -99,12 +135,41 @@ impl ControlPlaneService for ControlPlaneServer {
                 );
             }
         }
+        let active_instances = control_plane
+            .list_instances()
+            .iter()
+            .filter(|meta| {
+                matches!(
+                    meta.status,
+                    wasmatrix_core::InstanceStatus::Starting
+                        | wasmatrix_core::InstanceStatus::Running
+                )
+            })
+            .count();
+        observability.set_active_instances(active_instances);
+        observability.record_api_request("report_status", "ok", started.elapsed().as_secs_f64());
+        tracing::info!(
+            %correlation_id,
+            node_id = %req.node_id,
+            active_instances,
+            "Status report applied"
+        );
 
         Ok(Response::new(StatusReportResponse {
             success: true,
             message: "Status report received".to_string(),
         }))
     }
+}
+
+fn correlation_id_from_request<T>(request: &Request<T>) -> String {
+    request
+        .metadata()
+        .get("x-correlation-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
 }
 
 #[cfg(test)]

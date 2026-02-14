@@ -1,6 +1,11 @@
+pub mod features;
 pub mod kv_provider;
 
-use wasmatrix_core::{CapabilityAssignment, Result};
+use wasmatrix_core::Result;
+
+pub use features::http_provider::HttpCapabilityProvider;
+pub use features::messaging_provider::MessagingCapabilityProvider;
+pub use features::provider_lifecycle::controller::ProviderLifecycleController;
 
 pub trait CapabilityProvider {
     fn initialize(&mut self, config: serde_json::Value) -> Result<()>;
