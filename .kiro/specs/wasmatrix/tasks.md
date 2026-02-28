@@ -6,6 +6,10 @@ This implementation plan converts the WasmMatrix design into discrete coding tas
 
 ## Tasks
 
+## Maintenance Updates
+
+- [x] 2026-02-28 Remove legacy Elixir umbrella scaffold (`apps/`) and convert the root `mix.exs` to a standalone tooling project.
+
 - [ ] 1. Set up project structure and core foundations
   - Create Elixir umbrella application structure for control plane
   - Set up Rust workspace for data plane components

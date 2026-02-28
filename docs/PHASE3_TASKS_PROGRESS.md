@@ -161,3 +161,14 @@
     - stopped-provider rejection and restart recovery behavior validated
   - Comprehensive test sweep:
     - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+
+## 2026-02-28
+
+- Repository maintenance: removed the legacy Elixir umbrella scaffold under `apps/`.
+- Implementation:
+  - Deleted `apps/wasmatrix_control` and `apps/wasmatrix_web`.
+  - Converted the root `mix.exs` from umbrella mode to a standalone tooling project.
+  - Simplified `.formatter.exs` and removed stale Elixir app config entries from `config/config.exs`.
+- Verification:
+  - `mix test` passed (`There are no tests to run`)
+  - `mix compile` passed
