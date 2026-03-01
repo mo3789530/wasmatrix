@@ -75,11 +75,15 @@ The first release target for this spec is completing all `P0` tasks.
   - Implementation: Added role-based authorization for `instance.read`, `instance.admin`, and `capability.invoke`, with audit logging on authenticated write paths
   - _Requirements: 3.3, 3.4_
 
-- [ ] P0-6. Add production configuration and bootstrap rules
+- [~] P0-6. Add production configuration and bootstrap rules
   - Require persistent metadata configuration in production mode
   - Add explicit startup failure when durable store is unavailable
   - Add config for leader election timing, REST bind address, auth settings, and TLS materials
   - Document local-dev mode vs production mode behavior
+  - Implementation: Added `production_config` feature with controller/service/repo layers for runtime-mode aware bootstrap config loading
+  - Implementation: Added production-mode validation for required durable metadata (`USE_ETCD=true` + etcd connectivity) with explicit startup failure on invalid/unavailable store
+  - Implementation: Added centralized config parsing for leader election timing, REST bind address, auth presence, and TLS/mTLS material references
+  - Implementation: Wired `main.rs` bootstrap to consume validated production config instead of ad-hoc env parsing
   - _Requirements: 1.1, 2.4, 3.3_
 
 - [ ] P0-7. Add integration tests for HA baseline

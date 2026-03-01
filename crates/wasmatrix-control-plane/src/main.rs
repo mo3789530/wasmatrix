@@ -2,9 +2,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::Router;
 use serde::Serialize;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tonic::transport::Server;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -26,6 +24,9 @@ use wasmatrix_control_plane::features::node_routing::repo::etcd::{
 use wasmatrix_control_plane::features::node_routing::repo::InMemoryNodeRoutingRepository;
 use wasmatrix_control_plane::features::node_routing::service::NodeRoutingService;
 use wasmatrix_control_plane::features::observability::controller::global_observability_controller;
+use wasmatrix_control_plane::features::production_config::controller::ProductionConfigController;
+use wasmatrix_control_plane::features::production_config::repo::EnvConfigurationRepository;
+use wasmatrix_control_plane::features::production_config::service::RuntimeMode;
 use wasmatrix_control_plane::server::ControlPlaneServer;
 use wasmatrix_proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 
@@ -50,29 +51,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let control_plane_addr = std::env::var("CONTROL_PLANE_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:50051".to_string())
-        .parse::<SocketAddr>()?;
-    let metrics_addr = std::env::var("METRICS_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:9100".to_string())
-        .parse::<SocketAddr>()?;
-    let rest_api_addr = std::env::var("REST_API_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
-        .parse::<SocketAddr>()?;
+    let config_controller = ProductionConfigController::new(Box::new(EnvConfigurationRepository));
+    let bootstrap_config = config_controller.load()?;
+    let control_plane_addr = bootstrap_config.control_plane_addr;
+    let metrics_addr = bootstrap_config.metrics_addr;
+    let rest_api_addr = bootstrap_config.rest_api_addr;
 
     info!("Starting Wasmatrix Control Plane");
 
-    let node_id =
-        std::env::var("CONTROL_PLANE_NODE_ID").unwrap_or_else(|_| "control-plane-1".to_string());
+    let node_id = bootstrap_config.node_id.clone();
     let control_plane = Arc::new(Mutex::new(wasmatrix_control_plane::ControlPlane::new(
         node_id.clone(),
     )));
 
     let mut etcd_metadata_repo: Option<Arc<EtcdMetadataRepository>> = None;
     let mut metadata_persistence_controller: Option<Arc<MetadataPersistenceController>> = None;
-    if std::env::var("USE_ETCD").ok().as_deref() == Some("true") {
+    if bootstrap_config.use_etcd {
         if let Some(config) = EtcdConfig::from_env() {
             if let Err(error) = validate_etcd_config(&config).await {
+                if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                    return Err(format!("Failed to validate etcd configuration: {error}").into());
+                }
                 warn!(error = %error, "Failed to validate etcd configuration");
             } else {
                 info!(endpoints = ?config.endpoints, "etcd configuration loaded");
@@ -87,6 +86,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 ))));
                         }
                         Err(error) => {
+                            if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                                return Err(format!(
+                                    "Failed to connect metadata persistence to etcd in production mode: {error}"
+                                )
+                                .into());
+                            }
                             warn!(error = %error, "Failed to connect metadata persistence to etcd");
                         }
                     }
@@ -103,29 +108,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         } else {
+            if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                return Err("Production mode requires ETCD_ENDPOINTS when USE_ETCD=true".into());
+            }
             warn!("USE_ETCD is true but ETCD_ENDPOINTS is not configured");
         }
     }
 
+    if bootstrap_config.runtime_mode == RuntimeMode::Production
+        && metadata_persistence_controller.is_none()
+    {
+        return Err("Production mode requires durable metadata persistence initialization".into());
+    }
+
     let leader_election_config = LeaderElectionConfig {
-        lease_ttl: Duration::from_secs(
-            std::env::var("LEADER_ELECTION_TTL_SECS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(10),
-        ),
-        renew_interval: Duration::from_millis(
-            std::env::var("LEADER_ELECTION_RENEW_INTERVAL_MS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(3_000),
-        ),
+        lease_ttl: bootstrap_config.leader_election_ttl,
+        renew_interval: bootstrap_config.leader_election_renew_interval,
     };
 
     let leader_election_controller = {
         #[cfg(feature = "etcd")]
         {
-            if std::env::var("USE_ETCD").ok().as_deref() == Some("true") {
+            if bootstrap_config.use_etcd {
                 if let Some(config) = EtcdConfig::from_env() {
                     match wasmatrix_control_plane::features::leader_election::repo::EtcdLeaderElectionRepository::connect(&config).await {
                         Ok(repo) => Arc::new(LeaderElectionController::new(Arc::new(

@@ -242,3 +242,16 @@
   - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
   - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
   - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane --features etcd` failed in this environment because `protoc` is not installed for `etcd-client`'s build script
+
+## 2026-03-01
+
+- Implementation: started `production-foundation` P0-6 production bootstrap hardening.
+- Implementation:
+  - Added `features/production_config` in `wasmatrix-control-plane` with `controller/service/repo` to centralize env parsing and validation.
+  - Wired `main.rs` to consume bootstrap config from the new feature instead of ad-hoc environment parsing.
+  - Enforced production-mode startup failures when durable metadata requirements are not met (`USE_ETCD=true`, etcd config/validation/connectivity).
+  - Added explicit configuration parsing for leader election timings, REST bind address, auth presence, and TLS/mTLS material references.
+  - Documented development vs production startup behavior in `docs/PRODUCTION_MODE_BOOTSTRAP.md`.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
