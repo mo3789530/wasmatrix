@@ -180,3 +180,78 @@
   - Deleted `.formatter.exs`, `mix.exs`, `mix.lock`, `erl_crash.dump`, and the `config/` directory.
 - Verification:
   - No `mix` verification performed after removal because the Elixir project files were intentionally deleted.
+
+## 2026-02-28 (continued 2)
+
+- Documentation: added a current implementation inventory under `docs/CURRENT_IMPLEMENTATION_SUMMARY.md`.
+- Implementation:
+  - Summarized the currently implemented functionality across `wasmatrix-core`, `wasmatrix-control-plane`, `wasmatrix-agent`, `wasmatrix-providers`, `wasmatrix-runtime`, and `wasmatrix-proto`.
+  - Documented currently exposed internal gRPC/HTTP interfaces and noted major gaps that remain.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+
+## 2026-02-28 (continued 3)
+
+- Planning: added a new production foundation spec under `.kiro/specs/production-foundation/`.
+- Implementation:
+  - Added `requirements.md` for durable storage, leader election, external REST API, tracing, scheduler, quota, sandbox, CRDT sync, policy engine, and migration requirements.
+  - Added `design.md` describing the production target architecture and feature/module breakdown aligned to the current Rust workspace.
+  - Added `tasks.md` with prioritized `P0` / `P1` / `P2` implementation tasks.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+
+## 2026-02-28 (continued 4)
+
+- Implementation: started `production-foundation` P0 durable metadata work.
+- Implementation:
+  - Added `features/metadata_persistence` in `wasmatrix-control-plane` with `controller/service/repo`.
+  - Added `PersistentMetadataRepository` and `EtcdBackedMetadataRepository` for durable `InstanceMetadata` and crash history records.
+  - Added `PersistentInstanceRepository` and `InstanceService::new_with_persistence` to sync instance lifecycle writes into durable storage.
+  - Added unit tests covering durable reload fallback and crash history persistence on `Crashed` status transitions.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+
+## 2026-02-28 (continued 5)
+
+- Implementation: connected durable metadata persistence into the control-plane runtime path.
+- Implementation:
+  - Extended `ControlPlaneServer` to accept optional metadata persistence and persist status transitions from node-agent reports.
+  - Added fallback persistence for status updates when in-memory state is missing but durable metadata exists.
+  - Updated `main.rs` to initialize and inject metadata persistence during `USE_ETCD=true` startup.
+  - Added server test coverage for persisted crash history on gRPC status reports.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+
+## 2026-02-28 (continued 6)
+
+- Implementation: added real `etcd-client` code paths for metadata persistence behind the `etcd` feature flag.
+- Implementation:
+  - Updated `EtcdBackedMetadataRepository` to use real etcd `put/get/delete` calls when a client is configured.
+  - Added async etcd connection bootstrap for metadata persistence and wired it from `main.rs`.
+  - Preserved in-memory fallback behavior when the `etcd` feature is disabled or no client is configured.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo test --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml --workspace` passed
+  - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane --features etcd` failed in this environment because `protoc` is not installed for `etcd-client`'s build script
+
+## 2026-03-01
+
+- Implementation: started `production-foundation` P0-6 production bootstrap hardening.
+- Implementation:
+  - Added `features/production_config` in `wasmatrix-control-plane` with `controller/service/repo` to centralize env parsing and validation.
+  - Wired `main.rs` to consume bootstrap config from the new feature instead of ad-hoc environment parsing.
+  - Enforced production-mode startup failures when durable metadata requirements are not met (`USE_ETCD=true`, etcd config/validation/connectivity).
+  - Added explicit configuration parsing for leader election timings, REST bind address, auth presence, and TLS/mTLS material references.
+  - Documented development vs production startup behavior in `docs/PRODUCTION_MODE_BOOTSTRAP.md`.
+- Verification:
+  - `cargo test --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed
+  - `cargo build --manifest-path crates/Cargo.toml -p wasmatrix-control-plane` passed

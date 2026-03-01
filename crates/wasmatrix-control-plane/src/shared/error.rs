@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 
 /// Control plane specific errors
@@ -7,6 +5,8 @@ use thiserror::Error;
 pub enum ControlPlaneError {
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
     #[error("Instance not found: {0}")]
     InstanceNotFound(String),
     #[error("Capability not found: {0}")]
@@ -33,6 +33,7 @@ impl From<ControlPlaneError> for wasmatrix_core::ErrorResponse {
     fn from(err: ControlPlaneError) -> Self {
         let (code, message) = match &err {
             ControlPlaneError::InvalidRequest(msg) => ("INVALID_REQUEST", msg.clone()),
+            ControlPlaneError::Unauthorized(msg) => ("UNAUTHORIZED", msg.clone()),
             ControlPlaneError::InstanceNotFound(msg) => ("INSTANCE_NOT_FOUND", msg.clone()),
             ControlPlaneError::CapabilityNotFound(msg) => ("CAPABILITY_NOT_FOUND", msg.clone()),
             ControlPlaneError::PermissionDenied(msg) => ("PERMISSION_DENIED", msg.clone()),
@@ -70,6 +71,12 @@ mod tests {
     }
 
     #[test]
+    fn test_control_plane_error_unauthorized() {
+        let err = ControlPlaneError::Unauthorized("invalid token".to_string());
+        assert!(err.to_string().contains("Unauthorized"));
+    }
+
+    #[test]
     fn test_control_plane_error_permission_denied() {
         let err = ControlPlaneError::PermissionDenied("access denied".to_string());
         assert!(err.to_string().contains("Permission denied"));
@@ -93,6 +100,14 @@ mod tests {
         let error_response: wasmatrix_core::ErrorResponse = err.into();
         assert_eq!(error_response.error_code, "INVALID_REQUEST");
         assert_eq!(error_response.message, "test");
+    }
+
+    #[test]
+    fn test_control_plane_error_unauthorized_conversion() {
+        let err = ControlPlaneError::Unauthorized("invalid token".to_string());
+        let error_response: wasmatrix_core::ErrorResponse = err.into();
+        assert_eq!(error_response.error_code, "UNAUTHORIZED");
+        assert_eq!(error_response.message, "invalid token");
     }
 
     #[test]

@@ -1,10 +1,22 @@
+use axum::extract::State;
 use axum::routing::get;
 use axum::Router;
-use std::net::SocketAddr;
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tonic::transport::Server;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+use wasmatrix_control_plane::features::external_api::controller::ExternalApiController;
+use wasmatrix_control_plane::features::external_api::repo::ExternalApiRepository;
+use wasmatrix_control_plane::features::external_api::service::ExternalApiService;
+use wasmatrix_control_plane::features::leader_election::controller::LeaderElectionController;
+use wasmatrix_control_plane::features::leader_election::repo::InMemoryLeaderElectionRepository;
+use wasmatrix_control_plane::features::leader_election::service::{
+    LeaderElectionConfig, LeaderElectionService,
+};
+use wasmatrix_control_plane::features::metadata_persistence::controller::MetadataPersistenceController;
+use wasmatrix_control_plane::features::metadata_persistence::repo::EtcdBackedMetadataRepository;
+use wasmatrix_control_plane::features::metadata_persistence::service::MetadataPersistenceService;
 use wasmatrix_control_plane::features::node_routing::controller::NodeRoutingController;
 use wasmatrix_control_plane::features::node_routing::repo::etcd::{
     validate_etcd_config, EtcdConfig, EtcdMetadataRepository,
@@ -12,8 +24,23 @@ use wasmatrix_control_plane::features::node_routing::repo::etcd::{
 use wasmatrix_control_plane::features::node_routing::repo::InMemoryNodeRoutingRepository;
 use wasmatrix_control_plane::features::node_routing::service::NodeRoutingService;
 use wasmatrix_control_plane::features::observability::controller::global_observability_controller;
+use wasmatrix_control_plane::features::production_config::controller::ProductionConfigController;
+use wasmatrix_control_plane::features::production_config::repo::EnvConfigurationRepository;
+use wasmatrix_control_plane::features::production_config::service::RuntimeMode;
 use wasmatrix_control_plane::server::ControlPlaneServer;
 use wasmatrix_proto::v1::control_plane_service_server::ControlPlaneServiceServer;
+
+#[derive(Clone)]
+struct HttpAppState {
+    leader_election_controller: Arc<LeaderElectionController>,
+}
+
+#[derive(Serialize)]
+struct LeaderStatusResponse {
+    node_id: String,
+    is_leader: bool,
+    current_leader: Option<String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,32 +51,137 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let control_plane_addr = std::env::var("CONTROL_PLANE_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:50051".to_string())
-        .parse::<SocketAddr>()?;
-    let metrics_addr = std::env::var("METRICS_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:9100".to_string())
-        .parse::<SocketAddr>()?;
+    let config_controller = ProductionConfigController::new(Box::new(EnvConfigurationRepository));
+    let bootstrap_config = config_controller.load()?;
+    let control_plane_addr = bootstrap_config.control_plane_addr;
+    let metrics_addr = bootstrap_config.metrics_addr;
+    let rest_api_addr = bootstrap_config.rest_api_addr;
 
     info!("Starting Wasmatrix Control Plane");
 
+    let node_id = bootstrap_config.node_id.clone();
     let control_plane = Arc::new(Mutex::new(wasmatrix_control_plane::ControlPlane::new(
-        "node-1",
+        node_id.clone(),
     )));
 
     let mut etcd_metadata_repo: Option<Arc<EtcdMetadataRepository>> = None;
-    if std::env::var("USE_ETCD").ok().as_deref() == Some("true") {
+    let mut metadata_persistence_controller: Option<Arc<MetadataPersistenceController>> = None;
+    if bootstrap_config.use_etcd {
         if let Some(config) = EtcdConfig::from_env() {
             if let Err(error) = validate_etcd_config(&config).await {
+                if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                    return Err(format!("Failed to validate etcd configuration: {error}").into());
+                }
                 warn!(error = %error, "Failed to validate etcd configuration");
             } else {
                 info!(endpoints = ?config.endpoints, "etcd configuration loaded");
                 etcd_metadata_repo = Some(Arc::new(EtcdMetadataRepository::new()));
+                #[cfg(feature = "etcd")]
+                {
+                    match EtcdBackedMetadataRepository::connect(&config).await {
+                        Ok(repo) => {
+                            metadata_persistence_controller =
+                                Some(Arc::new(MetadataPersistenceController::new(Arc::new(
+                                    MetadataPersistenceService::new(Arc::new(repo)),
+                                ))));
+                        }
+                        Err(error) => {
+                            if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                                return Err(format!(
+                                    "Failed to connect metadata persistence to etcd in production mode: {error}"
+                                )
+                                .into());
+                            }
+                            warn!(error = %error, "Failed to connect metadata persistence to etcd");
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "etcd"))]
+                {
+                    metadata_persistence_controller =
+                        Some(Arc::new(MetadataPersistenceController::new(Arc::new(
+                            MetadataPersistenceService::new(Arc::new(
+                                EtcdBackedMetadataRepository::new(),
+                            )),
+                        ))));
+                }
             }
         } else {
+            if bootstrap_config.runtime_mode == RuntimeMode::Production {
+                return Err("Production mode requires ETCD_ENDPOINTS when USE_ETCD=true".into());
+            }
             warn!("USE_ETCD is true but ETCD_ENDPOINTS is not configured");
         }
     }
+
+    if bootstrap_config.runtime_mode == RuntimeMode::Production
+        && metadata_persistence_controller.is_none()
+    {
+        return Err("Production mode requires durable metadata persistence initialization".into());
+    }
+
+    let leader_election_config = LeaderElectionConfig {
+        lease_ttl: bootstrap_config.leader_election_ttl,
+        renew_interval: bootstrap_config.leader_election_renew_interval,
+    };
+
+    let leader_election_controller = {
+        #[cfg(feature = "etcd")]
+        {
+            if bootstrap_config.use_etcd {
+                if let Some(config) = EtcdConfig::from_env() {
+                    match wasmatrix_control_plane::features::leader_election::repo::EtcdLeaderElectionRepository::connect(&config).await {
+                        Ok(repo) => Arc::new(LeaderElectionController::new(Arc::new(
+                            LeaderElectionService::new(
+                                Arc::new(repo),
+                                node_id.clone(),
+                                leader_election_config.clone(),
+                            ),
+                        ))),
+                        Err(error) => {
+                            warn!(error = %error, "Falling back to in-memory leader election");
+                            Arc::new(LeaderElectionController::new(Arc::new(
+                                LeaderElectionService::new(
+                                    Arc::new(InMemoryLeaderElectionRepository::new()),
+                                    node_id.clone(),
+                                    leader_election_config.clone(),
+                                ),
+                            )))
+                        }
+                    }
+                } else {
+                    Arc::new(LeaderElectionController::new(Arc::new(
+                        LeaderElectionService::new(
+                            Arc::new(InMemoryLeaderElectionRepository::new()),
+                            node_id.clone(),
+                            leader_election_config.clone(),
+                        ),
+                    )))
+                }
+            } else {
+                Arc::new(LeaderElectionController::new(Arc::new(
+                    LeaderElectionService::new(
+                        Arc::new(InMemoryLeaderElectionRepository::new()),
+                        node_id.clone(),
+                        leader_election_config.clone(),
+                    ),
+                )))
+            }
+        }
+
+        #[cfg(not(feature = "etcd"))]
+        {
+            Arc::new(LeaderElectionController::new(Arc::new(
+                LeaderElectionService::new(
+                    Arc::new(InMemoryLeaderElectionRepository::new()),
+                    node_id.clone(),
+                    leader_election_config,
+                ),
+            )))
+        }
+    };
+    let _leader_election_task = leader_election_controller.start();
 
     let routing_repo = Arc::new(InMemoryNodeRoutingRepository::new());
     let routing_service = if let Some(etcd_repo) = etcd_metadata_repo {
@@ -78,11 +210,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let server = ControlPlaneServer::new(control_plane, routing_controller);
+    let server = ControlPlaneServer::new_with_dependencies(
+        control_plane.clone(),
+        routing_controller.clone(),
+        metadata_persistence_controller,
+        Some(leader_election_controller.clone()),
+    );
+    let external_api_controller = Arc::new(ExternalApiController::new(Arc::new(
+        ExternalApiService::new(
+            Arc::new(ExternalApiRepository::from_env(control_plane.clone())),
+            routing_controller.clone(),
+            Some(leader_election_controller.clone()),
+        ),
+    )));
 
     info!(%control_plane_addr, "Control Plane initialized successfully");
+    let http_state = HttpAppState {
+        leader_election_controller: leader_election_controller.clone(),
+    };
     tokio::spawn(async move {
-        let app = Router::new().route("/metrics", get(metrics_handler));
+        let app = Router::new()
+            .route("/metrics", get(metrics_handler))
+            .route("/healthz", get(health_handler))
+            .route("/leader", get(leader_handler))
+            .with_state(http_state);
         let listener = match tokio::net::TcpListener::bind(metrics_addr).await {
             Ok(listener) => listener,
             Err(error) => {
@@ -93,6 +244,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!(%metrics_addr, "Metrics endpoint listening");
         if let Err(error) = axum::serve(listener, app).await {
             warn!(error = %error, "Metrics endpoint exited with error");
+        }
+    });
+    tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(rest_api_addr).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                warn!(error = %error, %rest_api_addr, "Failed to bind external REST API");
+                return;
+            }
+        };
+        info!(%rest_api_addr, "External REST API listening");
+        if let Err(error) = axum::serve(listener, external_api_controller.router()).await {
+            warn!(error = %error, "External REST API exited with error");
         }
     });
 
@@ -108,4 +272,21 @@ async fn metrics_handler() -> String {
     global_observability_controller()
         .render_metrics()
         .unwrap_or_else(|e| format!("metrics_render_error{{reason=\"{}\"}} 1", e))
+}
+
+async fn health_handler(State(state): State<HttpAppState>) -> String {
+    if state.leader_election_controller.is_leader().await {
+        "ok".to_string()
+    } else {
+        "standby".to_string()
+    }
+}
+
+async fn leader_handler(State(state): State<HttpAppState>) -> axum::Json<LeaderStatusResponse> {
+    let status = state.leader_election_controller.leadership_status().await;
+    axum::Json(LeaderStatusResponse {
+        node_id: status.node_id,
+        is_leader: status.is_leader,
+        current_leader: status.current_leader.map(|lease| lease.leader_id),
+    })
 }

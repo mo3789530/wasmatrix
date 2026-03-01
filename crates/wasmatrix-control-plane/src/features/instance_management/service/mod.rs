@@ -1,4 +1,6 @@
+use crate::features::metadata_persistence::controller::MetadataPersistenceController;
 use crate::features::instance_management::repo::InstanceRepository;
+use crate::features::instance_management::repo::PersistentInstanceRepository;
 use crate::shared::error::{ControlPlaneError, ControlPlaneResult};
 use crate::shared::types::{
     CapabilityAssignment, InstanceMetadata, InstanceStatus, InstanceStatusResponse, ProviderType,
@@ -17,6 +19,19 @@ impl InstanceService {
     pub fn new(repo: Arc<dyn InstanceRepository>, node_id: impl Into<String>) -> Self {
         Self {
             repo,
+            node_id: node_id.into(),
+        }
+    }
+
+    pub fn new_with_persistence(
+        repo: Arc<dyn InstanceRepository>,
+        metadata_persistence: Arc<MetadataPersistenceController>,
+        node_id: impl Into<String>,
+    ) -> Self {
+        let persistent_repo: Arc<dyn InstanceRepository> =
+            Arc::new(PersistentInstanceRepository::new(repo, metadata_persistence));
+        Self {
+            repo: persistent_repo,
             node_id: node_id.into(),
         }
     }
@@ -146,12 +161,30 @@ impl InstanceService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::metadata_persistence::controller::MetadataPersistenceController;
+    use crate::features::metadata_persistence::repo::EtcdBackedMetadataRepository;
+    use crate::features::metadata_persistence::service::MetadataPersistenceService;
     use crate::features::instance_management::repo::InMemoryInstanceRepository;
     use crate::shared::types::RestartPolicy;
 
     fn create_test_service() -> InstanceService {
         let repo = Arc::new(InMemoryInstanceRepository::new());
         InstanceService::new(repo, "test-node")
+    }
+
+    fn create_test_service_with_persistence() -> (
+        InstanceService,
+        Arc<MetadataPersistenceController>,
+    ) {
+        let repo: Arc<dyn InstanceRepository> = Arc::new(InMemoryInstanceRepository::new());
+        let controller = Arc::new(MetadataPersistenceController::new(Arc::new(
+            MetadataPersistenceService::new(Arc::new(EtcdBackedMetadataRepository::new())),
+        )));
+
+        (
+            InstanceService::new_with_persistence(repo, controller.clone(), "test-node"),
+            controller,
+        )
     }
 
     fn create_valid_wasm_module() -> Vec<u8> {
@@ -418,5 +451,39 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(query_response3.status, InstanceStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_start_instance_persists_metadata() {
+        let (service, persistence) = create_test_service_with_persistence();
+        let request = StartInstanceRequest {
+            module_bytes: create_valid_wasm_module(),
+            capabilities: vec![],
+            restart_policy: RestartPolicy::default(),
+        };
+
+        let instance_id = service.start_instance(request).await.unwrap();
+        let persisted = persistence.get_instance(&instance_id).await.unwrap();
+        assert!(persisted.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_crashed_status_persists_crash_history() {
+        let (service, persistence) = create_test_service_with_persistence();
+        let request = StartInstanceRequest {
+            module_bytes: create_valid_wasm_module(),
+            capabilities: vec![],
+            restart_policy: RestartPolicy::default(),
+        };
+
+        let instance_id = service.start_instance(request).await.unwrap();
+        service
+            .update_status(&instance_id, InstanceStatus::Crashed)
+            .await
+            .unwrap();
+
+        let crash = persistence.get_crash_history(&instance_id).await.unwrap();
+        assert!(crash.is_some());
+        assert_eq!(crash.unwrap().crash_count, 1);
     }
 }

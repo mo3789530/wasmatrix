@@ -36,6 +36,8 @@ axum = "0.7"
 tower = "0.4"
 tower-http = "0.5"
 prometheus = "0.13"
+base64 = "0.21.7"
+ring = "0.17.14"
 
 # Hashing
 md5 = "0.7"

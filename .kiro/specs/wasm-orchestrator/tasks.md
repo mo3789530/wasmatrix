@@ -499,13 +499,17 @@ The implementation prioritizes statelessness, capability-based security, and res
   - Implementation: Verified graceful provider lifecycle stop/start handling in Node Agent invoke path
   - Verification: `cargo test --manifest-path crates/Cargo.toml --workspace` passed (all crates)
 
-- [ ] 23. Documentation and deployment preparation
+- [~] 23. Documentation and deployment preparation
   - Write API documentation for Control Plane endpoints
   - Write deployment guide for single-node and multi-node setups
   - Write configuration guide for etcd, providers, and restart policies
   - Create example Wasm modules demonstrating capability usage
   - Document security considerations and best practices
   - Prepare release artifacts and deployment scripts
+  - Implementation: Started documentation refresh for current repository state
+  - [x] 23.1 Document current implementation status
+    - Added `docs/CURRENT_IMPLEMENTATION_SUMMARY.md`
+    - Summarized implemented crates, currently exposed interfaces, and remaining gaps
 
 ## Notes
 

@@ -1,3 +1,4 @@
+use crate::features::metadata_persistence::controller::MetadataPersistenceController;
 use crate::shared::error::ControlPlaneResult;
 use crate::shared::types::{InstanceMetadata, InstanceStatus};
 use async_trait::async_trait;
@@ -28,6 +29,87 @@ pub trait InstanceRepository: Send + Sync {
 
     /// Check if instance exists
     async fn exists(&self, instance_id: &str) -> ControlPlaneResult<bool>;
+}
+
+#[derive(Clone)]
+pub struct PersistentInstanceRepository {
+    inner: Arc<dyn InstanceRepository>,
+    metadata_persistence: Arc<MetadataPersistenceController>,
+}
+
+impl PersistentInstanceRepository {
+    pub fn new(
+        inner: Arc<dyn InstanceRepository>,
+        metadata_persistence: Arc<MetadataPersistenceController>,
+    ) -> Self {
+        Self {
+            inner,
+            metadata_persistence,
+        }
+    }
+}
+
+#[async_trait]
+impl InstanceRepository for PersistentInstanceRepository {
+    async fn create(&self, metadata: InstanceMetadata) -> ControlPlaneResult<()> {
+        self.inner.create(metadata.clone()).await?;
+        self.metadata_persistence.upsert_instance(&metadata).await
+    }
+
+    async fn get(&self, instance_id: &str) -> ControlPlaneResult<Option<InstanceMetadata>> {
+        if let Some(metadata) = self.inner.get(instance_id).await? {
+            return Ok(Some(metadata));
+        }
+
+        self.metadata_persistence.get_instance(instance_id).await
+    }
+
+    async fn update_status(
+        &self,
+        instance_id: &str,
+        status: InstanceStatus,
+    ) -> ControlPlaneResult<()> {
+        let metadata = self.get(instance_id).await?.ok_or_else(|| {
+            crate::shared::error::ControlPlaneError::InstanceNotFound(instance_id.to_string())
+        })?;
+
+        if !self.inner.exists(instance_id).await? {
+            self.inner.create(metadata.clone()).await?;
+        }
+
+        self.inner.update_status(instance_id, status).await?;
+        self.metadata_persistence
+            .sync_status(&metadata, status, None)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, instance_id: &str) -> ControlPlaneResult<bool> {
+        let deleted = self.inner.delete(instance_id).await?;
+        let persisted_deleted = self.metadata_persistence.delete_instance(instance_id).await?;
+        Ok(deleted || persisted_deleted)
+    }
+
+    async fn list(&self) -> ControlPlaneResult<Vec<InstanceMetadata>> {
+        let in_memory = self.inner.list().await?;
+        if in_memory.is_empty() {
+            return self.metadata_persistence.list_instances().await;
+        }
+
+        Ok(in_memory)
+    }
+
+    async fn exists(&self, instance_id: &str) -> ControlPlaneResult<bool> {
+        if self.inner.exists(instance_id).await? {
+            return Ok(true);
+        }
+
+        Ok(self
+            .metadata_persistence
+            .get_instance(instance_id)
+            .await?
+            .is_some())
+    }
 }
 
 /// In-memory implementation of instance repository
@@ -111,6 +193,9 @@ impl InstanceRepository for InMemoryInstanceRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::metadata_persistence::controller::MetadataPersistenceController;
+    use crate::features::metadata_persistence::repo::EtcdBackedMetadataRepository;
+    use crate::features::metadata_persistence::service::MetadataPersistenceService;
 
     fn create_test_metadata(id: &str) -> InstanceMetadata {
         InstanceMetadata::new("test-node".to_string(), "test-hash".to_string())
@@ -285,5 +370,43 @@ mod tests {
         if let Some(metadata) = stored {
             assert_eq!(metadata.status, original_status);
         }
+    }
+
+    #[tokio::test]
+    async fn test_persistent_repo_falls_back_to_durable_storage() {
+        let inner: Arc<dyn InstanceRepository> = Arc::new(InMemoryInstanceRepository::new());
+        let metadata_repo = Arc::new(EtcdBackedMetadataRepository::new());
+        let controller = Arc::new(MetadataPersistenceController::new(Arc::new(
+            MetadataPersistenceService::new(metadata_repo),
+        )));
+        let repo = PersistentInstanceRepository::new(inner.clone(), controller);
+        let metadata = create_test_metadata("ignored");
+        let id = metadata.instance_id.clone();
+
+        repo.create(metadata).await.unwrap();
+        inner.delete(&id).await.unwrap();
+
+        let reloaded = repo.get(&id).await.unwrap();
+        assert!(reloaded.is_some());
+        assert_eq!(reloaded.unwrap().instance_id, id);
+    }
+
+    #[tokio::test]
+    async fn test_persistent_repo_records_crash_history_on_crashed_status() {
+        let inner: Arc<dyn InstanceRepository> = Arc::new(InMemoryInstanceRepository::new());
+        let metadata_repo = Arc::new(EtcdBackedMetadataRepository::new());
+        let controller = Arc::new(MetadataPersistenceController::new(Arc::new(
+            MetadataPersistenceService::new(metadata_repo),
+        )));
+        let repo = PersistentInstanceRepository::new(inner, controller.clone());
+        let metadata = create_test_metadata("ignored");
+        let id = metadata.instance_id.clone();
+
+        repo.create(metadata).await.unwrap();
+        repo.update_status(&id, InstanceStatus::Crashed).await.unwrap();
+
+        let crash = controller.get_crash_history(&id).await.unwrap();
+        assert!(crash.is_some());
+        assert_eq!(crash.unwrap().crash_count, 1);
     }
 }
