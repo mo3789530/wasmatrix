@@ -8,6 +8,9 @@ use std::time::Duration;
 use tonic::transport::Server;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+use wasmatrix_control_plane::features::external_api::controller::ExternalApiController;
+use wasmatrix_control_plane::features::external_api::repo::ExternalApiRepository;
+use wasmatrix_control_plane::features::external_api::service::ExternalApiService;
 use wasmatrix_control_plane::features::leader_election::controller::LeaderElectionController;
 use wasmatrix_control_plane::features::leader_election::repo::InMemoryLeaderElectionRepository;
 use wasmatrix_control_plane::features::leader_election::service::{
@@ -52,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse::<SocketAddr>()?;
     let metrics_addr = std::env::var("METRICS_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:9100".to_string())
+        .parse::<SocketAddr>()?;
+    let rest_api_addr = std::env::var("REST_API_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
         .parse::<SocketAddr>()?;
 
     info!("Starting Wasmatrix Control Plane");
@@ -201,11 +207,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let server = ControlPlaneServer::new_with_dependencies(
-        control_plane,
-        routing_controller,
+        control_plane.clone(),
+        routing_controller.clone(),
         metadata_persistence_controller,
         Some(leader_election_controller.clone()),
     );
+    let external_api_controller = Arc::new(ExternalApiController::new(Arc::new(
+        ExternalApiService::new(
+            Arc::new(ExternalApiRepository::from_env(control_plane.clone())),
+            routing_controller.clone(),
+            Some(leader_election_controller.clone()),
+        ),
+    )));
 
     info!(%control_plane_addr, "Control Plane initialized successfully");
     let http_state = HttpAppState {
@@ -227,6 +240,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!(%metrics_addr, "Metrics endpoint listening");
         if let Err(error) = axum::serve(listener, app).await {
             warn!(error = %error, "Metrics endpoint exited with error");
+        }
+    });
+    tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(rest_api_addr).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                warn!(error = %error, %rest_api_addr, "Failed to bind external REST API");
+                return;
+            }
+        };
+        info!(%rest_api_addr, "External REST API listening");
+        if let Err(error) = axum::serve(listener, external_api_controller.router()).await {
+            warn!(error = %error, "External REST API exited with error");
         }
     });
 

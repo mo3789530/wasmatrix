@@ -51,7 +51,7 @@ The first release target for this spec is completing all `P0` tasks.
   - Note: local validation covered default build/test paths; the `--features etcd` code path was not exercised in this environment
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] P0-4. Add an external authenticated REST API
+- [~] P0-4. Add an external authenticated REST API
   - Create `external_api` feature in `crates/wasmatrix-control-plane/src/features/`
   - Add Axum routes for:
     - `POST /v1/instances`
@@ -62,13 +62,17 @@ The first release target for this spec is completing all `P0` tasks.
     - `DELETE /v1/instances/{id}/capabilities/{capability_id}`
     - `POST /v1/capabilities/invoke`
   - Reuse existing internal services rather than duplicating orchestration logic
+  - Implementation: Added `external_api` feature with controller/service/repo layers and Axum routes for instance lifecycle, capability assignment, capability invoke, and `/v1` diagnostics
+  - Implementation: Wired REST bootstrap in `main.rs` on `REST_API_ADDR` while reusing existing control-plane state and `node_routing` orchestration
   - _Requirements: 3.1, 3.2, 3.5_
 
-- [ ] P0-5. Add external API authentication and RBAC
+- [~] P0-5. Add external API authentication and RBAC
   - Implement JWT validation and principal extraction
   - Add optional mTLS identity mapping for trusted callers
   - Implement RBAC role checks in the external API service layer
   - Add audit logging for authenticated write paths
+  - Implementation: Added HS256 JWT validation, principal extraction, and optional `x-mtls-subject` to principal mapping via `EXTERNAL_API_MTLS_PRINCIPALS`
+  - Implementation: Added role-based authorization for `instance.read`, `instance.admin`, and `capability.invoke`, with audit logging on authenticated write paths
   - _Requirements: 3.3, 3.4_
 
 - [ ] P0-6. Add production configuration and bootstrap rules

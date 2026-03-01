@@ -1,3 +1,4 @@
+pub mod external_api;
 pub mod instance_management;
 pub mod leader_election;
 pub mod metadata_persistence;
